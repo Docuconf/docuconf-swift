@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux (Swift ${{ matrix.swift }})
+    runs-on: ubuntu-latest
+    container: swift:${{ matrix.swift }}-noble
+    strategy:
+      fail-fast: false
+      matrix:
+        # swift-configuration needs tools version 6.2.
+        swift: ["6.2", "6.3"]
+    steps:
+      - uses: actions/checkout@v4
+
+      # The contract meta-schema (spec/cue) lives in docuconf-go; the export
+      # tests vet generated contracts against it.
+      - uses: actions/checkout@v4
+        with:
+          repository: docuconf/docuconf-go
+          path: docuconf-go
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Install cue
+        run: go install cuelang.org/go/cmd/cue@v0.17.1 && echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - run: swift build --build-tests
+      - run: swift test
+        env:
+          DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
+          DOCUCONF_REQUIRE_VET: "1"
+
+      - name: Export the example's contract and vet it
+        run: |
+          swift run GatewayExample docuconf-export --out /tmp/contract.cue
+          diff -u Examples/Gateway/contract.cue /tmp/contract.cue
+          mkdir -p /tmp/vet/svc
+          cp -r docuconf-go/spec/cue/cue.mod docuconf-go/spec/cue/contract /tmp/vet/
+          cp /tmp/contract.cue /tmp/vet/svc/
+          cd /tmp/vet && cue vet -c ./svc
+
+  core-foundation-only:
+    # DocuconfCore must build with nothing but Foundation, so a later iOS
+    # build-time contract can reuse it.
+    name: DocuconfCore alone
+    runs-on: ubuntu-latest
+    container: swift:6.3-noble
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift build --target DocuconfCore
+      - name: No imports beyond Foundation
+        run: |
+          if grep -rhoE '^(@_exported |public |package |internal )?import [A-Za-z_]+' Sources/DocuconfCore | grep -vE 'import Foundation$'; then
+            echo "DocuconfCore must import only Foundation" >&2
+            exit 1
+          fi
+
+  macos:
+    name: macOS and iOS
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select the newest Xcode (Swift 6.2 or later is required)
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && swift --version
+      - run: swift build --build-tests
+      - run: swift test
+      - name: Build DocuconfCore for iOS
+        run: xcodebuild build -scheme DocuconfCore -destination 'generic/platform=iOS Simulator' -quiet

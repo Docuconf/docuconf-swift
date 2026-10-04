@@ -1,0 +1,57 @@
+name: Release
+
+# Swift packages are published by git tag: SwiftPM resolves versions from
+# tags, and the Swift Package Index picks new tags up on its own. There is no
+# registry upload and no token. Push a tag such as 0.1.0 (matching
+# DocuconfSDK.version) and this workflow tests that exact commit and creates
+# the GitHub release.
+on:
+  push:
+    tags: ["[0-9]+.[0-9]+.[0-9]+*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: swift:6.3-noble
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: docuconf/docuconf-go
+          path: docuconf-go
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - run: go install cuelang.org/go/cmd/cue@v0.17.1 && echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Check the tag matches DocuconfSDK.version
+        run: |
+          version=$(sed -n 's/.*static let version = "\(.*\)".*/\1/p' Sources/DocuconfCore/Contract.swift)
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match DocuconfSDK.version $version" >&2
+            exit 1
+          fi
+
+      - run: swift test
+        env:
+          DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
+          DOCUCONF_REQUIRE_VET: "1"
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes $prerelease
