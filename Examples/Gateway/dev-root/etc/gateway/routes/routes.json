@@ -1,0 +1,1 @@
+{"routes":[{"prefix":"/api","upstream":"http://api.internal:8080"}]}

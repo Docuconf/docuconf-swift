@@ -35,6 +35,13 @@ let package = Package(
                 .product(name: "Yams", package: "Yams"),
             ]
         ),
+        // A runnable example; not a product.
+        .executableTarget(
+            name: "GatewayExample",
+            dependencies: ["Docuconf", .product(name: "Configuration", package: "swift-configuration")],
+            path: "Examples/Gateway",
+            exclude: ["dev-root", "contract.cue"]
+        ),
         .testTarget(name: "DocuconfCoreTests", dependencies: ["DocuconfCore"], exclude: ["Golden"]),
         .testTarget(
             name: "DocuconfTests",
