@@ -166,7 +166,8 @@ swift-configuration parses the values, so they mean the same to docuconf as to a
   seconds is what it reads natively (`reader.double(forKey:)`). Contracts still hold Go-syntax durations (`1m30s`); the
   platform renders the number.
 - **Booleans** accept `true`/`false` in any case, and also `yes`/`no`/`1`/`0`, as the host does.
-- On top of the host, docuconf treats an empty string as unset for every type except `string` (SPEC §5), rejects
+- On top of the host, docuconf treats an empty string as unset for every type except `string` (SPEC §5), reports an
+  integer (or integer list item) beyond the 64-bit range as `out_of_range` rather than `invalid_type`, rejects
   `NaN` and infinity, and never trims values. It warns when a secret ends in a newline (a Secret made with
   `--from-file`).
 - **Patterns** are RE2, matched anywhere in the value. They run on Swift Regex with RE2's semantics: Unicode scalars,
