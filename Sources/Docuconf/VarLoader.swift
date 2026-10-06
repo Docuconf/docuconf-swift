@@ -86,8 +86,9 @@ enum VarLoader {
             if let b = reader.bool(forKey: key, isSecret: secret) { return .success(.bool(b)) }
             return raw == nil ? nil : invalid("is not true or false")
         case .duration:
-            // Encoding "seconds": a number of seconds, read as a Double. A JSON overlay holds it as a string
-            // ("90", SPEC §4.7), which JSONSnapshot will not convert to a number, so parse that text too.
+            // Encoding "seconds": a number of seconds, read as a Double. Overlays hold it as a number (90, 1.5);
+            // a string of seconds ("90", as earlier renderers wrote) is parsed too, since JSONSnapshot will not
+            // convert a string to a number.
             if let d = reader.double(forKey: key, isSecret: secret) ?? raw.flatMap(Double.init) {
                 guard d.isFinite, d >= 0, d < 9.2e9 else { return invalid("is not a non-negative number of seconds") }
                 return .success(.duration(.milliseconds(Int64((d * 1000).rounded()))))

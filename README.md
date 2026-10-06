@@ -236,8 +236,8 @@ has.
   a `configKey`, even when the key is already the variable name. The exception is `json` variables: a file
   snapshot splits a nested object into separate keys, so the app could not read one back. They get no `configKey`,
   and the platform has to supply them through the environment.
-- **Values** are native JSON or YAML types, and docuconf checks them like environment values. A duration is the
-  number of seconds as a string (`"90"`), as the platform renders it. A missing overlay file is fine. A file that
+- **Values** are native JSON or YAML types, and docuconf checks them like environment values. A duration is a
+  number of seconds (`90`, `1.5`), as the platform renders it; a string of seconds (`"90"`) is also accepted. A missing overlay file is fine. A file that
   does not parse is reported as `file_malformed`, together with every other problem.
 - **Reload**: overlays are `reload: restart`, so a changed overlay rolls the pods. docuconf reads variables
   once, at boot, so declaring `.watch` is a declaration error.

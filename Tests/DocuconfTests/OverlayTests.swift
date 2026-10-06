@@ -92,7 +92,7 @@ struct YAMLCatalogConfig: DocuconfConfig {
             page:
               size: 50
             cache:
-              ttl: "90"
+              ttl: "90"   # a string of seconds, as earlier renderers wrote it, is still read
             search:
               url: https://search.internal
               fuzzy: true
@@ -157,7 +157,7 @@ struct YAMLCatalogConfig: DocuconfConfig {
             if CueVet.required { Issue.record("cue or the meta-schema is missing") }
             return
         }
-        #expect(file.contains(#""ttl": "90""#), "a duration is rendered in the variable's encoding (seconds)")
+        #expect(file.contains(#""ttl": 90"#), "a seconds duration is rendered as a number")
 
         let box = try Sandbox(Self.secretEnv)
         try box.write(Self.overlayPath, file)
@@ -176,7 +176,7 @@ struct YAMLCatalogConfig: DocuconfConfig {
         let contract = try Docuconf.contract(for: YAMLCatalogConfig.self, name: "catalog", package: "svc")
         guard let file = try CueVet.renderOverlay(contract, overlay: "platform", fileName: "catalog.yaml", overlayValues: """
             PAGE_SIZE: 50
-            CACHE_TTL: "1m30s"
+            CACHE_TTL: "1500ms"
             SEARCH_URL: "https://search.internal"
             FEATURED_CATEGORIES: ["books", "games"]
             SEARCH_FUZZY: true
@@ -184,11 +184,12 @@ struct YAMLCatalogConfig: DocuconfConfig {
             if CueVet.required { Issue.record("cue or the meta-schema is missing") }
             return
         }
+        #expect(file.contains("ttl: 1.5"), "fractional seconds are a decimal number")
         let box = try Sandbox()
         try box.write("/etc/catalog/overlay/catalog.yaml", file)
         let c = try await box.load(YAMLCatalogConfig.self)
         #expect(c.pageSize == 50)
-        #expect(c.cacheTTL == .seconds(90))
+        #expect(c.cacheTTL == .milliseconds(1500))
         #expect(c.searchURL.absoluteString == "https://search.internal")
         #expect(c.featured == ["books", "games"])
         #expect(c.fuzzy == true)
