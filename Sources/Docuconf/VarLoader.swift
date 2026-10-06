@@ -15,39 +15,26 @@ enum VarLoader {
         let raw = reader.string(forKey: key, isSecret: spec.secret)
         if spec.secret, let raw { rawSecrets[spec.name] = raw }
 
-        // An injector (vault-env, `op run`) that did not run leaves its reference in place (SPEC §4.5.1).
-        if spec.secret, let raw, let v = InjectorReference.violation(for: spec.name, value: raw) {
-            return [v]
-        }
-
-        let parsed: Result<ParsedValue, Violation>?
-        if raw == "" && spec.type != .string {
-            parsed = nil
-        } else {
-            parsed = read(spec, key: key, raw: raw, reader: reader)
-        }
-
-        guard let parsed else {
-            if spec.required {
-                return [Violation(.missingRequired, spec.name, "is required but not set")]
+        // The steps contract-first mode shares: an injector reference left in a secret (SPEC §4.5.1), required
+        // and unset, then the declared constraints. An empty string is unset for every type but `string`.
+        let outcome = spec.resolve(raw: raw) {
+            if raw == "" && spec.type != .string { return nil }
+            guard let parsed = read(spec, key: key, raw: raw, reader: reader) else { return nil }
+            if let d = spec.deprecated {
+                options.warn("\(spec.name) is deprecated: \(d.message)" + (d.replacedBy.map { " Use \($0) instead." } ?? ""))
             }
+            if spec.secret, let raw, raw.hasSuffix("\n") {
+                options.warn("\(spec.name) ends with a newline. Values are never trimmed; was the Secret created with --from-file?")
+            }
+            return parsed
+        }
+        switch outcome {
+        case .failure(let e):
+            return e.violations
+        case .success(nil):
             input.storeUnset()
             return []
-        }
-
-        if let d = spec.deprecated {
-            options.warn("\(spec.name) is deprecated: \(d.message)" + (d.replacedBy.map { " Use \($0) instead." } ?? ""))
-        }
-        if spec.secret, let raw, raw.hasSuffix("\n") {
-            options.warn("\(spec.name) ends with a newline. Values are never trimmed; was the Secret created with --from-file?")
-        }
-
-        switch parsed {
-        case .failure(let v):
-            return [v]
-        case .success(let value):
-            let violations = spec.check(value)
-            if !violations.isEmpty { return violations }
+        case .success(let value?):
             do {
                 try input.store(value)
                 return []

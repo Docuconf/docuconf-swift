@@ -73,6 +73,11 @@ import Testing
         return s
     }
 
+    func code(_ r: Result<ParsedValue, Violation>?) -> ViolationCode? {
+        guard case .failure(let v)? = r else { return nil }
+        return v.code
+    }
+
     @Test func emptyIsUnsetExceptForStrings() throws {
         #expect(spec(.int).parse(wire: "") == nil)
         #expect(spec(.bool).parse(wire: "") == nil)
@@ -83,6 +88,11 @@ import Testing
         #expect(try spec(.int).parse(wire: "8080")?.get() == .int(8080))
         #expect(spec(.int).parse(wire: "8080.0").map { (try? $0.get()) == nil } == true)
         #expect(spec(.int).parse(wire: "99999999999999999999").map { (try? $0.get()) == nil } == true)
+        #expect(code(spec(.int).parse(wire: "99999999999999999999")) == .outOfRange)
+        #expect(code(spec(.int).parse(wire: "ten")) == .invalidType)
+        #expect(spec(.float).parse(wire: "0x1p3").map { (try? $0.get()) == nil } == true)
+        #expect(spec(.float).parse(wire: "0,5").map { (try? $0.get()) == nil } == true)
+        #expect(try spec(.float).parse(wire: "1e3")?.get() == .double(1000))
         #expect(spec(.float).parse(wire: "NaN").map { (try? $0.get()) == nil } == true)
         #expect(spec(.float).parse(wire: "inf").map { (try? $0.get()) == nil } == true)
         #expect(try spec(.float).parse(wire: "0.5")?.get() == .double(0.5))
