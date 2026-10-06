@@ -75,6 +75,10 @@ public struct VarSpec: Sendable {
     public var items: VarType?
     public var minItems: Int?
     public var maxItems: Int?
+    /// Bounds on each item of an `int` list (`itemMin`, `itemMax`). An item type narrower than 64 bits
+    /// (`[Int32]`, `[UInt16]`) sets them to its own range.
+    public var itemMin: Int?
+    public var itemMax: Int?
     // json
     public var schema: JSONValue?
 

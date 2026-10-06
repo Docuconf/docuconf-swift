@@ -94,6 +94,10 @@ public struct Declaration: Sendable {
             if let a = v.minLength, let b = v.maxLength, a > b { problems.append("\(n): minLength \(a) is above maxLength \(b)") }
             if let a = v.minLength, a < 0 { problems.append("\(n): minLength cannot be negative") }
             if let a = v.minItems, let b = v.maxItems, a > b { problems.append("\(n): minItems \(a) is above maxItems \(b)") }
+            if let a = v.itemMin, let b = v.itemMax, a > b { problems.append("\(n): itemMin \(a) is above itemMax \(b)") }
+            if (v.itemMin != nil || v.itemMax != nil) && (v.type != .list || v.items != .int) {
+                problems.append("\(n): itemMin and itemMax apply only to lists of integers")
+            }
             if let a = v.min?.asDouble, let b = v.max?.asDouble, a > b { problems.append("\(n): min is above max") }
             if case .double(let d)? = v.min, !d.isFinite { problems.append("\(n): min must be finite") }
             if case .double(let d)? = v.max, !d.isFinite { problems.append("\(n): max must be finite") }

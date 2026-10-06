@@ -102,6 +102,8 @@ public enum Contract {
             out.append(("encoding", .string(VarSpec.listEncoding)))
             if let x = v.minItems { out.append(("minItems", .int(x))) }
             if let x = v.maxItems { out.append(("maxItems", .int(x))) }
+            if let x = v.itemMin { out.append(("itemMin", .int(x))) }
+            if let x = v.itemMax { out.append(("itemMax", .int(x))) }
         case .json:
             if let s = v.schema { out.append(("schema", s)) }
         case .bool:

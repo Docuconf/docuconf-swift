@@ -129,11 +129,26 @@ and every file input type.
 | `URL` | `url` | `.schemes("postgres", "postgresql")` |
 | a `ConfigEnum` (`String` raw values) | `enum` | the cases are the allowed values |
 | `[String]`, `[Int]` | `list` | `.items(1...5)`, `.minItems`, `.maxItems` |
+| `[Int32]`, `[UInt16]`, any fixed-width integer list | `list` of `int` | as above, plus `.itemRange(0...1023)`, `.itemMin`, `.itemMax` |
 | a `JSONConfigValue` (`Codable` struct) | `json` | JSON Schema derived from the type |
 
 Every variable also takes `.secret`, `.group("database")`, `.examples("eu-west-1")` and
 `.deprecated("Use REQUEST_TIMEOUT", replacedBy: "REQUEST_TIMEOUT")`. The rules a type accepts are checked by the
 compiler: `.schemes` on an `Int` does not build.
+
+**Item bounds.** `.itemRange`, `.itemMin` and `.itemMax` bound every item of an integer list and are exported as
+`itemMin` / `itemMax`; an item outside them is `out_of_range` at boot. A list of an integer type narrower than 64
+bits exports the type's own range without any rule, so the platform never sends an item the app cannot hold:
+
+```swift
+@Env("shard.ids", "Shard ids this instance owns", .itemRange(0...1023)) var shardIDs: [UInt16] = [0]
+// exports itemMin: 0, itemMax: 1023
+@Env("listen.ports", "Extra ports to listen on") var ports: [UInt16]?
+// exports itemMin: 0, itemMax: 65535
+```
+
+A rule bound outside the item type's range (`.itemRange(0...70000)` on `[UInt16]`) is a declaration error. Scalar
+integers are `Int` only.
 
 The declaration itself is checked before any value is read (`DeclarationError`): names, descriptions of at least 5
 characters, defaults that break their own constraints, secrets with defaults or examples, patterns outside RE2

@@ -127,6 +127,10 @@ extension VarSpec {
             out += checkCount(l.count)
         case .intList(let l):
             out += checkCount(l.count)
+            if let (i, item) = l.enumerated().first(where: { $0.element < itemMin ?? .min || $0.element > itemMax ?? .max }) {
+                let bound = item < itemMin ?? .min ? "below itemMin \(itemMin!)" : "above itemMax \(itemMax!)"
+                add(.outOfRange, "item \(i) is \(bound)" + shown(String(item)))
+            }
         case .json:
             break
         }

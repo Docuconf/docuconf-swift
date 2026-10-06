@@ -16,7 +16,7 @@ import Testing
 
     @Test func fixtureIsValid() throws {
         let d = try Declaration(GatewayConfig.self)
-        #expect(d.vars.count == 14)
+        #expect(d.vars.count == 16)
         #expect(d.files.count == 7)
         #expect(d.warnings.isEmpty)
     }
@@ -146,5 +146,39 @@ import Testing
         #expect(d.vars[0].name == "ENABLE_NEW_CHECKOUT")
         #expect(d.warnings.count == 1)
         #expect(d.warnings[0].contains("feature flag"))
+    }
+
+    @Test func itemBoundsFromTheItemType() throws {
+        struct C: DocuconfConfig {
+            @Env("a", "Plain Int items") var a: [Int]?
+            @Env("b", "Signed 32-bit items") var b: [Int32]?
+            @Env("c", "Unsigned 16-bit items") var c: [UInt16]?
+            @Env("d", "Unsigned 64-bit items") var d: [UInt64]?
+            @Env("e", "Narrowed by a rule", .itemRange(1...10)) var e: [UInt8]?
+            @Env("f", "String items") var f: [String]?
+        }
+        let v = Dictionary(uniqueKeysWithValues: try Declaration(C.self).vars.map { ($0.name, $0) })
+        #expect(v["A"]?.itemMin == nil && v["A"]?.itemMax == nil)
+        #expect(v["B"]?.itemMin == Int(Int32.min) && v["B"]?.itemMax == Int(Int32.max))
+        #expect(v["C"]?.itemMin == 0 && v["C"]?.itemMax == 65535)
+        #expect(v["D"]?.itemMin == 0 && v["D"]?.itemMax == nil)
+        #expect(v["E"]?.itemMin == 1 && v["E"]?.itemMax == 10)
+        #expect(v["F"]?.itemMin == nil && v["F"]?.itemMax == nil)
+        let fields = Contract.fields(v["C"]!)
+        #expect(fields.first { $0.0 == "itemMin" }?.1 == 0)
+        #expect(fields.first { $0.0 == "itemMax" }?.1 == 65535)
+    }
+
+    @Test func itemBoundsOutsideTheItemType() {
+        struct C: DocuconfConfig {
+            @Env("a", "Too wide for UInt8", .itemRange(-1...300)) var a: [UInt8]?
+            @Env("b", "Inverted bounds", .itemMin(5), .itemMax(1)) var b: [Int]?
+            @Env("c", "Default breaks the bounds", .itemMax(3)) var c = [1, 4]
+        }
+        let p = problems(C.self)
+        #expect(p.contains("A: itemMin -1 is outside the range of UInt8"))
+        #expect(p.contains("A: itemMax 300 is outside the range of UInt8"))
+        #expect(p.contains("B: itemMin 5 is above itemMax 1"))
+        #expect(p.contains { $0.hasPrefix("C: default [1,4] violates its own constraints: item 1 is above itemMax 3") })
     }
 }

@@ -196,4 +196,20 @@ let validEnv = [
         #expect(a.port == 1001)
         #expect(b.port == 1002)
     }
+
+    @Test func listItemBounds() async throws {
+        struct C: DocuconfConfig {
+            @Env("shards", "Shard ids this instance owns", .itemRange(0...1023)) var shards: [Int] = []
+            @Env("ports", "Ports to listen on") var ports: [UInt16]?
+        }
+        let ok = try await Sandbox(["SHARDS": "0,7,1023", "PORTS": "80,65535"]).load(C.self)
+        #expect(ok.shards == [0, 7, 1023])
+        #expect(ok.ports == [80, 65535])
+        let bad = try Sandbox(["SHARDS": "3,-1", "PORTS": "65536"])
+        let v = await bad.violations(C.self)
+        #expect(v.map(\.code) == [.outOfRange, .outOfRange])
+        #expect(v.map(\.input).sorted() == ["PORTS", "SHARDS"])
+        #expect(v.contains { $0.message.contains("item 1 is below itemMin 0") })
+        #expect(v.contains { $0.message.contains("item 0 is above itemMax 65535") })
+    }
 }
