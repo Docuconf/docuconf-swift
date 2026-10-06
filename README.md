@@ -203,6 +203,49 @@ for await change in config.$routes.changes(every: .seconds(10)) {
 }
 ```
 
+## Config-file overlays
+
+swift-configuration layers providers, and the first one with a value wins. An app that bakes a JSON or YAML file
+into its image reads it with a `FileProvider` below the environment. An overlay (SPEC §4.7) is one more file that
+the platform mounts between the two, so the order is baked-in file < overlay < environment. Declare it on the
+configuration type:
+
+```swift
+struct GatewayConfig: DocuconfConfig {
+    static let overlays = [
+        ConfigOverlay("platform", "Settings the platform manages", path: "/etc/gateway/overlay/gateway.json"),
+    ]
+
+    @Env("http.port", "HTTP listen port", .range(1...65535)) var port = 8443
+    // ...
+}
+
+let base = try await FileProvider<JSONSnapshot>(filePath: "/app/config/gateway.json")
+let config = try await Docuconf.load(GatewayConfig.self, files: [base])
+// providers, first match wins: environment, overlays, then `files`
+```
+
+If you compose your own `ConfigReader`, put `try await Docuconf.overlayProviders(for: GatewayConfig.self)` after the
+environment provider and before your file providers. `Docuconf.load(_:from:)` reads only the providers the reader
+has.
+
+- **Format**: JSON or YAML, read with swift-configuration's `JSONSnapshot` and `YAMLSnapshot`. The format comes from
+  the extension, or pass `format:`. TOML is not supported.
+- **Keys**: the platform writes each value at its variable's swift-configuration key, split on `.`:
+  `http.port` becomes `{"http": {"port": 8443}}`. The contract declares `keySeparator: "."`, and every variable gets
+  a `configKey`, even when the key is already the variable name. The exception is `json` variables: a file
+  snapshot splits a nested object into separate keys, so the app could not read one back. They get no `configKey`,
+  and the platform has to supply them through the environment.
+- **Values** are native JSON or YAML types, and docuconf checks them like environment values. A duration is the
+  number of seconds as a string (`"90"`), as the platform renders it. A missing overlay file is fine. A file that
+  does not parse is reported as `file_malformed`, together with every other problem.
+- **Reload**: overlays are `reload: restart`, so a changed overlay rolls the pods. docuconf reads variables
+  once, at boot, so declaring `.watch` is a declaration error.
+- **Placement**: the platform mounts the overlay's directory, which hides whatever the image has there. The
+  directory must not be a system directory or another input's mount, which is checked at declaration time. It must
+  also not be the directory the executable runs from, which is checked at load (`LoadOptions.appDirectory`).
+  `DOCUCONF_FILE_ROOT` is prepended to the overlay path, as for file inputs.
+
 ## Boot behaviour
 
 - `DOCUCONF_FILE_ROOT` is prepended to every absolute file path, including one read from a `pathEnv` variable, for
@@ -248,6 +291,7 @@ against the xcconfig or plist of each build configuration, rather than at app la
 - Profiles (SPEC §4.4): swift-configuration has no profile convention, so baked-in config files are not exported as
   `profiles`. If you layer a JSON file provider under the environment, its values are not in the contract.
 - TOML config files (no TOML decoder in the dependency set).
+- Reloading config-file overlays (`reload: watch`): variables are read once, at boot.
 - Contract-first loading (`contract.cue` at runtime) and Markdown docs, which the spec lists as SHOULDs.
 - The `ca.crt` chain check validates against the system clock, not `LoadOptions.now`.
 - A Swift macro that generates the declaration. Property wrappers read by reflection (the approach

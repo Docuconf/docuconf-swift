@@ -16,7 +16,8 @@ let package = Package(
         .library(name: "DocuconfCore", targets: ["DocuconfCore"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-configuration", from: "1.2.0"),
+        // YAML adds YAMLSnapshot, for YAML config-file overlays (it uses Yams, which docuconf already needs).
+        .package(url: "https://github.com/apple/swift-configuration", from: "1.2.0", traits: ["JSON", "YAML"]),
         .package(url: "https://github.com/apple/swift-certificates", from: "1.21.0"),
         .package(url: "https://github.com/apple/swift-crypto", "3.12.3"..<"6.0.0"),
         .package(url: "https://github.com/apple/swift-asn1", from: "1.3.0"),
