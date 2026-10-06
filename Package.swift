@@ -42,11 +42,14 @@ let package = Package(
             path: "Examples/Gateway",
             exclude: ["dev-root", "contract.cue"]
         ),
-        .testTarget(name: "DocuconfCoreTests", dependencies: ["DocuconfCore"], exclude: ["Golden"]),
+        // Runs cue for the tests: vets exported contracts and renders overlays with the meta-schema.
+        .target(name: "CueTestSupport", path: "Tests/CueTestSupport"),
+        .testTarget(name: "DocuconfCoreTests", dependencies: ["DocuconfCore", "CueTestSupport"], exclude: ["Golden"]),
         .testTarget(
             name: "DocuconfTests",
             dependencies: [
                 "Docuconf",
+                "CueTestSupport",
                 .product(name: "X509", package: "swift-certificates"),
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "_CryptoExtras", package: "swift-crypto"),

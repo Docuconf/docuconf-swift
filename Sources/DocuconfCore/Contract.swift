@@ -40,7 +40,7 @@ public enum Contract {
         w.open("vars: {")
         for v in declaration.vars.sorted(by: { $0.name < $1.name }) {
             w.open("\(CueWriter.label(v.name)): {")
-            for (k, value) in fields(v) { w.field(k, value) }
+            for (k, value) in fields(v, overlays: !declaration.overlays.isEmpty) { w.field(k, value) }
             w.close()
         }
         w.close()
@@ -53,19 +53,34 @@ public enum Contract {
             }
             w.close()
         }
+        if !declaration.overlays.isEmpty {
+            w.open("overlays: {")
+            for o in declaration.overlays.sorted(by: { $0.name < $1.name }) {
+                w.open("\(CueWriter.label(o.name)): {")
+                for (k, value) in fields(o) { w.field(k, value) }
+                w.close()
+            }
+            w.close()
+        }
         w.close()
         return w.text
     }
 
     /// A variable's contract fields, in a readable order.
-    public static func fields(_ v: VarSpec) -> [(String, JSONValue)] {
+    ///
+    /// - Parameter overlays: Whether the declaration has config-file overlays. A variable needs a `configKey`
+    ///   for the platform to put it in an overlay, so it is then written even when it equals the name. A `json`
+    ///   variable gets none: swift-configuration's file snapshots split a nested object into separate keys, so
+    ///   the app could not read it back from an overlay, and without a `configKey` the platform keeps it in
+    ///   the environment.
+    public static func fields(_ v: VarSpec, overlays: Bool = false) -> [(String, JSONValue)] {
         var out: [(String, JSONValue)] = [("type", .string(v.type.rawValue)), ("description", .string(v.description))]
         if v.required { out.append(("required", true)) }
         if v.secret { out.append(("secret", true)) }
         if let g = v.group { out.append(("group", .string(g))) }
         if let e = v.examples { out.append(("examples", .array(e.map(JSONValue.string)))) }
         if let d = v.deprecated { out.append(("deprecated", deprecation(d))) }
-        if v.key != v.name { out.append(("configKey", .string(v.key))) }
+        if overlays ? v.type != .json : v.key != v.name { out.append(("configKey", .string(v.key))) }
         switch v.type {
         case .string:
             if let x = v.minLength { out.append(("minLength", .int(x))) }
@@ -129,6 +144,17 @@ public enum Contract {
         case .binary:
             break
         }
+        return out
+    }
+
+    /// An overlay's contract fields (`#Overlay`), in a readable order.
+    public static func fields(_ o: ConfigOverlay) -> [(String, JSONValue)] {
+        var out: [(String, JSONValue)] = []
+        if let d = o.description { out.append(("description", .string(d))) }
+        out.append(("format", .string(o.format.rawValue)))
+        out.append(("path", .string(o.path)))
+        out.append(("keySeparator", .string(o.keySeparator)))
+        out.append(("reload", .string(o.reload.rawValue)))
         return out
     }
 
