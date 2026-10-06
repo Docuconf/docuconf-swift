@@ -15,6 +15,11 @@ enum VarLoader {
         let raw = reader.string(forKey: key, isSecret: spec.secret)
         if spec.secret, let raw { rawSecrets[spec.name] = raw }
 
+        // An injector (vault-env, `op run`) that did not run leaves its reference in place (SPEC §4.5.1).
+        if spec.secret, let raw, let v = InjectorReference.violation(for: spec.name, value: raw) {
+            return [v]
+        }
+
         let parsed: Result<ParsedValue, Violation>?
         if raw == "" && spec.type != .string {
             parsed = nil

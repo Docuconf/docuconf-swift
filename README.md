@@ -214,6 +214,20 @@ for await change in config.$routes.changes(every: .seconds(10)) {
   `certificate_name_mismatch`, `key_mismatch`, `keystore_unreadable`.
 - Environment variables that are not declared are ignored.
 
+### Injected secrets
+
+Platforms often supply secrets at container start instead of in the pod spec: Bank-Vaults' `vault-env` resolves
+values such as `vault:secret/data/db#url`, and wrappers such as `op run` resolve their own references. Nothing changes
+in your code: docuconf reads the process environment as it is when the process starts, after injection, and validates
+the injected values like any other. It never resolves a reference itself.
+
+If the injector did not run, the app would receive the reference itself. A secret variable whose value starts with
+`vault:`, `op://` or `ref+` therefore fails with `invalid_type`, naming the scheme but never the value:
+
+```
+DATABASE_URL [invalid_type]: holds an unresolved vault: reference; the injector that should resolve it did not run
+```
+
 ## Mobile
 
 iOS apps do not get per-environment configuration from Kubernetes: their configuration is compiled in, through

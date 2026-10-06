@@ -110,6 +110,35 @@ let validEnv = [
         }
     }
 
+    @Test(arguments: [
+        ("vault:secret/data/app/db#url", "vault:"),
+        ("op://Production/app-db/url", "op://"),
+        ("ref+awssecrets://app/db#/url", "ref+"),
+    ])
+    func unresolvedInjectorReference(reference: String, scheme: String) async throws {
+        // The injector (vault-env, `op run`, vals) did not run, so the secret still holds its reference.
+        let box = try Sandbox(validEnv.merging(["DATABASE_URL": reference]) { $1 })
+        let v = await box.violations(ServiceConfig.self)
+        #expect(v == [Violation(.invalidType, "DATABASE_URL",
+                                "holds an unresolved \(scheme) reference; the injector that should resolve it did not run")])
+        let path = String(reference.dropFirst(scheme.count))
+        #expect(!v[0].message.contains(path))
+        let log = try #require(box.terminationLog)
+        #expect(log.contains("DATABASE_URL [invalid_type]: holds an unresolved \(scheme) reference"))
+        #expect(!log.contains(path))
+    }
+
+    @Test func injectorReferencesAreOnlyCheckedOnSecrets() async throws {
+        // A non-secret is checked by its own constraints; a string may legitimately start with "vault:".
+        let box = try Sandbox(validEnv.merging(["REGION": "vault:eu-west-1"]) { $1 })
+        #expect(await box.violations(ServiceConfig.self).map(\.code) == [.patternMismatch])
+        struct Notes: DocuconfConfig {
+            @Env("motd", "Message of the day") var motd = ""
+        }
+        let c = try await Sandbox(["MOTD": "vault: closed today"]).load(Notes.self)
+        #expect(c.motd == "vault: closed today")
+    }
+
     @Test func secretNewlineWarning() async throws {
         let box = try Sandbox(validEnv.merging(["API_TOKEN": "tok-123456789\n"]) { $1 })
         _ = try await box.load(ServiceConfig.self)
