@@ -56,9 +56,7 @@ struct FileLoader: Sendable {
         if let pe = spec.pathEnv, let p = reader.string(forKey: ConfigKey(pe)), !p.isEmpty {
             path = p
         }
-        if let root = options.fileRoot, path.hasPrefix("/") {
-            path = (root.hasSuffix("/") ? String(root.dropLast()) : root) + path
-        }
+        path = options.rooted(path)
         let password = spec.passwordVar.flatMap { rawSecrets[$0] }
         let context = FileReloadContext(options: options, keystorePassword: password)
         input.setState(FileLoadState(path: path, context: context))

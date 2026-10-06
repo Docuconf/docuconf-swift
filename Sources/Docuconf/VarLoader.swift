@@ -15,6 +15,11 @@ enum VarLoader {
         let raw = reader.string(forKey: key, isSecret: spec.secret)
         if spec.secret, let raw { rawSecrets[spec.name] = raw }
 
+        // An injector (vault-env, `op run`) that did not run leaves its reference in place (SPEC §4.5.1).
+        if spec.secret, let raw, let v = InjectorReference.violation(for: spec.name, value: raw) {
+            return [v]
+        }
+
         let parsed: Result<ParsedValue, Violation>?
         if raw == "" && spec.type != .string {
             parsed = nil
@@ -81,8 +86,10 @@ enum VarLoader {
             if let b = reader.bool(forKey: key, isSecret: secret) { return .success(.bool(b)) }
             return raw == nil ? nil : invalid("is not true or false")
         case .duration:
-            // Encoding "seconds": a number of seconds, read as a Double.
-            if let d = reader.double(forKey: key, isSecret: secret) {
+            // Encoding "seconds": a number of seconds, read as a Double. Overlays hold it as a number (90, 1.5);
+            // a string of seconds ("90", as earlier renderers wrote) is parsed too, since JSONSnapshot will not
+            // convert a string to a number.
+            if let d = reader.double(forKey: key, isSecret: secret) ?? raw.flatMap(Double.init) {
                 guard d.isFinite, d >= 0, d < 9.2e9 else { return invalid("is not a non-negative number of seconds") }
                 return .success(.duration(.milliseconds(Int64((d * 1000).rounded()))))
             }

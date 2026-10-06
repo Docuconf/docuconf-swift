@@ -11,6 +11,12 @@ import Foundation
 /// The struct needs an `init()`, which Swift synthesizes when every property has a wrapper or a value.
 public protocol DocuconfConfig: Sendable {
     init()
+    /// Config-file overlays the platform may mount (SPEC §4.7). None by default.
+    static var overlays: [ConfigOverlay] { get }
+}
+
+extension DocuconfConfig {
+    public static var overlays: [ConfigOverlay] { [] }
 }
 
 /// The inputs a ``DocuconfConfig`` declares, read by reflection, and checked for mistakes in the declaration
@@ -18,6 +24,7 @@ public protocol DocuconfConfig: Sendable {
 public struct Declaration: Sendable {
     public let vars: [VarSpec]
     public let files: [FileSpec]
+    public let overlays: [ConfigOverlay]
     /// Non-fatal findings, such as variable names that look like feature flags (SPEC §10).
     public let warnings: [String]
 
@@ -40,7 +47,8 @@ public struct Declaration: Sendable {
         self.fileInputs = files
         self.vars = envs.map(\.spec)
         self.files = files.map(\.spec)
-        let (problems, warnings) = Self.validate(vars: vars, files: self.files)
+        self.overlays = type(of: instance).overlays
+        let (problems, warnings) = Self.validate(vars: vars, files: self.files, overlays: overlays)
         self.warnings = warnings
         if !problems.isEmpty { throw DeclarationError(problems: problems) }
     }
@@ -59,7 +67,7 @@ public struct Declaration: Sendable {
         return parent.isEmpty ? "/" : parent
     }
 
-    static func validate(vars: [VarSpec], files: [FileSpec]) -> (problems: [String], warnings: [String]) {
+    package static func validate(vars: [VarSpec], files: [FileSpec], overlays: [ConfigOverlay] = []) -> (problems: [String], warnings: [String]) {
         var problems: [String] = []
         var warnings: [String] = []
         var seen: [String: String] = [:]
@@ -153,6 +161,29 @@ public struct Declaration: Sendable {
                 } else {
                     problems.append("\(n): passwordVar \(pv) is not a declared variable")
                 }
+            }
+        }
+        var overlayNames = Set<String>()
+        for o in overlays {
+            let n = "overlay \(o.name)"
+            problems += o.problems
+            if !EnvName.isValidInputName(o.name) {
+                problems.append("\(n): overlay names must be DNS labels (^[a-z]([-a-z0-9]{0,40}[a-z0-9])?$)")
+            }
+            if !overlayNames.insert(o.name).inserted { problems.append("\(n): declared twice") }
+            if let d = o.description, d.unicodeScalars.count < 5 { problems.append("\(n): description must be at least 5 characters") }
+            if !isAbsoluteNormalized(o.path) {
+                problems.append("\(n): path \(o.path) must be absolute and normalised (no '.', '..', '//' or trailing '/')")
+            }
+            let mount = o.mountDirectory
+            if reservedDirs.contains(mount) {
+                problems.append("\(n): would be mounted at \(mount), which hides a directory the image needs; choose a dedicated directory")
+            }
+            if let other = mounts[mount] { problems.append("\(n): shares mount directory \(mount) with \(other)") }
+            mounts[mount] = n
+            if o.format == .toml { problems.append("\(n): TOML overlays are not supported; swift-configuration reads JSON and YAML") }
+            if o.reload == .watch {
+                problems.append("\(n): reload: watch is not supported; docuconf reads variables once at boot, so declare .restart and let a changed overlay roll the pods")
             }
         }
         return (problems, warnings)
