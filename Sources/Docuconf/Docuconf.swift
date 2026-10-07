@@ -4,8 +4,12 @@ import Foundation
 
 /// Settings for ``Docuconf/load(_:from:options:)``.
 public struct LoadOptions: Sendable {
-    /// The process environment, for `DOCUCONF_FILE_ROOT` and `DOCUCONF_TERMINATION_LOG`.
-    /// Configuration values themselves are read through the `ConfigReader`.
+    /// The environment. Defaults to the process environment, which is only read, never changed.
+    ///
+    /// - With ``Docuconf/load(_:dotEnvPath:files:options:)`` (no reader), configuration values are read from it,
+    ///   so a test can pass a dictionary and never touch the process environment.
+    /// - With ``Docuconf/load(_:from:options:)``, values come from the `ConfigReader`, and this is used only for
+    ///   `DOCUCONF_FILE_ROOT`, `DOCUCONF_TERMINATION_LOG` and the warnings about misspelled names.
     public var environment: [String: String]
     /// The clock certificate checks use.
     public var now: @Sendable () -> Date
@@ -45,9 +49,9 @@ public struct LoadOptions: Sendable {
     }
 
     /// Where violations are written for Kubernetes: `DOCUCONF_TERMINATION_LOG`, or `/dev/termination-log`
-    /// when that file exists.
+    /// when that file exists. `DOCUCONF_TERMINATION_LOG` set to an empty string writes no log.
     public var terminationLogPath: String? {
-        if let p = environment["DOCUCONF_TERMINATION_LOG"], !p.isEmpty { return p }
+        if let p = environment["DOCUCONF_TERMINATION_LOG"] { return p.isEmpty ? nil : p }  // empty: no log
         return FileManager.default.fileExists(atPath: "/dev/termination-log") ? "/dev/termination-log" : nil
     }
 }
@@ -58,9 +62,13 @@ public enum Docuconf {
     /// configuration. Throws ``ConfigurationError`` listing **all** problems, after writing them to the
     /// Kubernetes termination log, or ``DeclarationError`` if the declaration itself is wrong.
     ///
+    /// In `main`, use ``loadOrExit(_:from:options:)`` instead: a `throws` escaping top-level code or an
+    /// `async throws` `main` crashes the process with a backtrace. Use `load` in tests:
+    ///
     /// ```swift
-    /// let reader = ConfigReader(provider: EnvironmentVariablesProvider())
-    /// let config = try await Docuconf.load(AppConfig.self, from: reader)
+    /// await #expect(throws: ConfigurationError.self) {
+    ///     try await Docuconf.load(AppConfig.self, from: ConfigReader(provider: InMemoryProvider(values: ["http.port": 0])))
+    /// }
     /// ```
     ///
     /// Config-file overlays are read only if `reader` has them: see ``overlayProviders(for:options:)``.
@@ -73,6 +81,8 @@ public enum Docuconf {
         let declaration = try Declaration(instance: instance)
         try checkTraits(declaration)
         for w in declaration.warnings { options.warn(w) }
+        let declared = Set(declaration.vars.map(\.name) + declaration.files.compactMap(\.pathEnv))
+        for w in TypoHint.warnings(declared: declared, environment: options.environment) { options.warn(w) }
 
         var violations = earlier
         var rawSecrets: [String: String] = [:]
@@ -126,10 +136,83 @@ public enum Docuconf {
         return try await load(type, from: ConfigReader(providers: providers), options: options, violations: overlayViolations)
     }
 
+    /// Loads from the given environment only, for tests: the process environment is neither read nor changed,
+    /// no `.env` file is read, and nothing keeps running afterwards.
+    ///
+    /// ```swift
+    /// let config = try await Docuconf.load(AppConfig.self, environment: ["DATABASE_URL": "postgres://db/app"])
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - environment: The variables, by environment name (`HTTP_PORT`).
+    ///   - fileRoot: Prepended to every absolute file input path, as `DOCUCONF_FILE_ROOT` is.
+    public static func load<C: DocuconfConfig>(
+        _ type: C.Type = C.self, environment: [String: String], fileRoot: String? = nil, warn: @escaping @Sendable (String) -> Void = { _ in }
+    ) async throws -> C {
+        var env = environment
+        if let fileRoot { env["DOCUCONF_FILE_ROOT"] = fileRoot }
+        // An explicit environment never writes to /dev/termination-log unless it asks to.
+        if env["DOCUCONF_TERMINATION_LOG"] == nil { env["DOCUCONF_TERMINATION_LOG"] = "" }
+        return try await load(type, options: LoadOptions(environment: env, warn: warn, appDirectory: nil))
+    }
+
+    /// Like ``load(_:from:options:)``, but on a configuration problem it prints the problems to standard error
+    /// and exits with status 1, with no backtrace. This is the call for `main`:
+    ///
+    /// ```swift
+    /// let config = await Docuconf.loadOrExit(AppConfig.self, from: reader)
+    /// ```
+    ///
+    /// ```
+    /// docuconf: 2 configuration problems:
+    ///   - HTTP_PORT [out_of_range]: is below min 1 (got "0")
+    ///   - DATABASE_URL [missing_required]: is required but not set (Primary Postgres connection string)
+    /// ```
+    ///
+    /// The problems also go to the termination log, so `kubectl describe pod` shows them.
+    public static func loadOrExit<C: DocuconfConfig>(_ type: C.Type = C.self, from reader: ConfigReader, options: LoadOptions = LoadOptions()) async -> C {
+        await orExit(options: options) { try await load(type, from: reader, options: options) }
+    }
+
+    /// Like ``load(_:dotEnvPath:files:options:)``, but on a configuration problem it prints the problems to
+    /// standard error and exits with status 1, with no backtrace. This is the call for `main`:
+    ///
+    /// ```swift
+    /// let config = await Docuconf.loadOrExit(AppConfig.self)
+    /// ```
+    public static func loadOrExit<C: DocuconfConfig>(
+        _ type: C.Type = C.self, dotEnvPath: String? = nil, files: [any ConfigProvider] = [], options: LoadOptions = LoadOptions()
+    ) async -> C {
+        await orExit(options: options) { try await load(type, dotEnvPath: dotEnvPath, files: files, options: options) }
+    }
+
+    /// Runs `body`; on a docuconf error prints it once and exits 1. The exit is injectable for tests.
+    static func orExit<C>(options: LoadOptions, exit: (Int32) -> Never = { Foundation.exit($0) }, _ body: () async throws -> C) async -> C {
+        do {
+            return try await body()
+        } catch let e as ConfigurationError {
+            // `load` has written the termination log already.
+            printToStandardError(e.description)
+        } catch let e as DeclarationError {
+            writeTerminationLog(e.description, options: options)
+            printToStandardError(e.description)
+        } catch {
+            // Only a provider can throw anything else (an unreadable `.env` file, a broken overlay provider).
+            let text = "docuconf: configuration could not be loaded: \(error)"
+            writeTerminationLog(text, options: options)
+            printToStandardError(text)
+        }
+        exit(1)
+    }
+
     static func writeTerminationLog(_ error: ConfigurationError, options: LoadOptions) {
+        writeTerminationLog(error.description, options: options)
+    }
+
+    static func writeTerminationLog(_ text: String, options: LoadOptions) {
         guard let path = options.terminationLogPath else { return }
         // Kubernetes keeps the first 4096 bytes; a failure to write must not hide the real error.
-        try? Data(error.description.utf8.prefix(4096)).write(to: URL(fileURLWithPath: path))
+        try? Data(text.utf8.prefix(4096)).write(to: URL(fileURLWithPath: path))
     }
 
     /// File inputs that need a check this build leaves out: TLS key pairs, CA bundles and keystores are checked

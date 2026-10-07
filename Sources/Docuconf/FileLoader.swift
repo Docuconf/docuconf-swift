@@ -68,7 +68,11 @@ struct FileLoader: Sendable {
         if !present || exists.boolValue != (spec.type == .tls) {
             if spec.required {
                 let what = spec.type == .tls ? "directory" : "file"
-                let reason = present ? "is not a \(what)" : "does not exist"
+                var reason = present ? "is not a \(what)" : "does not exist"
+                if spec.type == .tls { reason += " (it should hold tls.crt and tls.key\(spec.requireCA ? " and ca.crt" : ""))" }
+                if !present && options.fileRoot == nil {
+                    reason += "; for a local run, set DOCUCONF_FILE_ROOT to a directory that mirrors the container's paths"
+                }
                 return [Violation(.fileMissing, spec.name, "\(path) \(reason)")]
             }
             return []
@@ -104,15 +108,15 @@ struct FileLoader: Sendable {
     static func check(_ spec: FileSpec, at path: String, context: FileReloadContext) async -> Checked<LoadedFile> {
         let name = spec.name
         if spec.type == .tls {
-            return await TLSCheck.check(spec, directory: path, now: context.options.now())
-        }
-
-        let data: Data
             #if TLS
-        do {
+            return await TLSCheck.check(spec, directory: path, now: context.options.now())
             #else
             return .failure([Violation(.certificateInvalid, name, "TLS key pairs need docuconf's TLS trait")])
             #endif
+        }
+
+        let data: Data
+        do {
             if let maxSize = spec.maxSize,
                 let size = (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber,
                 size.intValue > maxSize
@@ -136,11 +140,11 @@ struct FileLoader: Sendable {
             }
             let violations = spec.checkText(text)
             if !violations.isEmpty { return .failure(violations) }
+        #if TLS
         case .caBundle:
             switch PEM.certificates(in: data) {
             case .failure(let problems):
                 return .failure([Violation(.fileMalformed, name, "\(path) \(problems[0].message)")])
-        #if TLS
             case .success(let certs):
                 let min = spec.minCertificates ?? 1
                 if certs.count < min {
@@ -154,15 +158,15 @@ struct FileLoader: Sendable {
                 let with = spec.passwordVar.map { "the password in \($0)" } ?? "an empty password"
                 return .failure([Violation(.keystoreUnreadable, name, "\(path) is not a \(format.rawValue) keystore that opens with \(with): \(problem)")])
             }
-        }
-        return .success(file)
-    }
-
         #else
         case .caBundle, .keystore:
             // Unreachable: `Docuconf.load` rejects these declarations without the TLS trait.
             return .failure([Violation(.fileMalformed, name, "\(spec.type.rawValue) inputs need docuconf's TLS trait")])
         #endif
+        }
+        return .success(file)
+    }
+
     /// Reads a file, mapping permission problems to `file_unreadable` with the Kubernetes hint.
     static func readFile(_ path: String) throws -> Data {
         guard FileManager.default.isReadableFile(atPath: path) else {
@@ -186,11 +190,11 @@ extension Violation {
     func with(input: String) -> Violation { Violation(code, input, message) }
 }
 
+#if TLS
 /// PEM helpers on swift-certificates.
 enum PEM {
     /// Every certificate in a PEM file. Fails if the file has no PEM blocks or a certificate does not parse.
     static func certificates(in data: Data) -> Checked<[Certificate]> {
-#if TLS
         guard let text = String(data: data, encoding: .utf8) else { return .failure([Violation(.fileMalformed, "", "is not PEM text")]) }
         let documents: [PEMDocument]
         do {

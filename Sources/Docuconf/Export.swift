@@ -22,7 +22,17 @@ extension Docuconf {
     /// No environment is read and no file input is checked, so it runs in CI without production values.
     public static func exportIfRequested<C: DocuconfConfig>(_ type: C.Type, name: String, arguments: [String] = CommandLine.arguments) {
         let args = Array(arguments.dropFirst())
-        guard args.first == "docuconf-export" else { return }
+        guard let first = args.first else { return }
+        if first != "docuconf-export" && first.hasPrefix("docuconf") {
+            // `docuconf_export`, `docuconf-exprot`: an exporter typo must not boot the real app.
+            printToStandardError("docuconf-export: unknown command \(first); did you mean docuconf-export?")
+            exit(2)
+        }
+        guard first == "docuconf-export" else { return }
+        if args.contains("--help") || args.contains("-h") {
+            print(exportUsage)
+            exit(0)
+        }
         var out: String?
         var appVersion: String?
         var package: String?
@@ -34,7 +44,7 @@ extension Docuconf {
             case "--app-version": appVersion = value
             case "--package": package = value
             default:
-                printToStandardError("docuconf-export: unknown option \(args[i])")
+                printToStandardError("docuconf-export: unknown option \(args[i])\n\n" + exportUsage)
                 exit(2)
             }
             if value == nil {
@@ -48,7 +58,16 @@ extension Docuconf {
             for w in declaration.warnings { printToStandardError("docuconf: warning: " + w) }
             let text = try Contract.cue(for: declaration, name: name, appVersion: appVersion, package: package)
             if let out {
-                try Data(text.utf8).write(to: URL(fileURLWithPath: out))
+                do {
+                    try Data(text.utf8).write(to: URL(fileURLWithPath: out))
+                } catch {
+                    let dir = (out as NSString).deletingLastPathComponent
+                    var isDir: ObjCBool = false
+                    let reason = !dir.isEmpty && !(FileManager.default.fileExists(atPath: dir, isDirectory: &isDir) && isDir.boolValue)
+                        ? "no such directory \(dir)" : "permission denied or not a regular file"
+                    printToStandardError("docuconf-export: cannot write \(out): \(reason)")
+                    exit(1)
+                }
             } else {
                 FileHandle.standardOutput.write(Data(text.utf8))
             }
@@ -59,3 +78,14 @@ extension Docuconf {
         }
     }
 }
+
+let exportUsage = """
+    usage: <app> docuconf-export [--out <file>] [--app-version <version>] [--package <name>]
+
+    Writes the app's docuconf contract (contract.cue) and exits. Reads no environment and checks no files.
+
+      -o, --out <file>          file to write (default: standard output)
+          --app-version <v>     metadata.appVersion, such as the git SHA
+          --package <name>      CUE package name (default: the service name with - replaced by _)
+      -h, --help                show this help
+    """
