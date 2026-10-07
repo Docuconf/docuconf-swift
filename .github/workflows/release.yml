@@ -36,7 +36,7 @@ jobs:
             exit 1
           fi
 
-      - run: swift test
+      - run: swift test --traits TLS
         env:
           DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
           DOCUCONF_REQUIRE_VET: "1"

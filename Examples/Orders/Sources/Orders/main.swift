@@ -31,14 +31,8 @@ struct OrdersConfig: DocuconfConfig {
 // `orders docuconf-export --out contract.cue` writes the contract and exits without reading the environment.
 Docuconf.exportIfRequested(OrdersConfig.self, name: "orders")
 
-let config: OrdersConfig
-do {
-    // Reads the environment and reports every violation at once (also to /dev/termination-log).
-    config = try await Docuconf.load(OrdersConfig.self)
-} catch {
-    Docuconf.printToStandardError("\(error)")
-    exit(1)
-}
+// Reads the environment. On a problem it prints every violation at once (also to /dev/termination-log) and exits 1.
+let config = await Docuconf.loadOrExit(OrdersConfig.self)
 
 let configJSON: [String: Any] = [
     "port": config.port,

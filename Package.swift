@@ -48,8 +48,16 @@ let package = Package(
             name: "GatewayExample",
             dependencies: ["Docuconf", .product(name: "Configuration", package: "swift-configuration")],
             path: "Examples/Gateway",
-            exclude: ["dev-root", "contract.cue"]
+            exclude: ["dev-root", "contract.cue", "make-dev-tls.sh"]
         ),
+        // The README quickstart, run with `swift run Quickstart`; Tests/QuickstartTests is the README's test.
+        .executableTarget(
+            name: "Quickstart",
+            dependencies: ["Docuconf"],
+            path: "Examples/Quickstart",
+            exclude: ["expected-error.txt", "smoke.sh"]
+        ),
+        .testTarget(name: "QuickstartTests", dependencies: ["Quickstart", "Docuconf"]),
         // Runs cue for the tests: vets exported contracts and renders overlays with the meta-schema.
         .target(name: "CueTestSupport", path: "Tests/CueTestSupport"),
         .testTarget(name: "DocuconfCoreTests", dependencies: ["DocuconfCore", "CueTestSupport"], exclude: ["Golden"]),
