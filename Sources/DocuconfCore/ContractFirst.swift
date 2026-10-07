@@ -160,6 +160,7 @@ public struct ContractDocument: Sendable {
             }
         case .url:
             spec.schemes = strings("schemes")
+            spec.maxLength = int("maxLength")
         case .enum:
             spec.values = strings("values")
         case .list:
@@ -180,8 +181,11 @@ public struct ContractDocument: Sendable {
             spec.maxItems = int("maxItems")
             spec.itemMin = int("itemMin")
             spec.itemMax = int("itemMax")
+            spec.itemMinLength = int("itemMinLength")
+            spec.itemMaxLength = int("itemMaxLength")
         case .json:
             spec.schema = entry["schema"]
+            spec.maxLength = int("maxLength")
         case .bool:
             break
         }
