@@ -169,3 +169,34 @@ extension VarRule where Base: EnvBaseValue & RangeReplaceableCollection, Base.El
         }
     }
 }
+
+// MARK: - Printing
+
+/// How a loaded value is shown by `print`, `dump`, string interpolation and debuggers: the value itself, or
+/// `<redacted>` for a secret, so logging a whole configuration struct never leaks one.
+package enum Redaction {
+    package static let redacted = "<redacted>"
+    package static let notLoaded = "<not loaded>"
+}
+
+extension Box: CustomReflectable {
+    /// Hides the stored value from `dump` and `Mirror`.
+    package var customMirror: Mirror { Mirror(self, children: [:]) }
+}
+
+extension Env: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    /// The value, or `<redacted>` for a secret. `print(config)` shows each variable this way.
+    public var description: String { shown(debug: false) }
+
+    public var debugDescription: String { shown(debug: true) }
+
+    /// `dump(config)` shows the same text as `description`, and never the spec or the storage.
+    public var customMirror: Mirror { Mirror(self, children: [:], displayStyle: nil) }
+
+    private func shown(debug: Bool) -> String {
+        guard let v = box.value else { return Redaction.notLoaded }
+        if spec.secret { return Redaction.redacted }
+        guard let base = v.base else { return "nil" }
+        return debug ? String(reflecting: base) : String(describing: base)
+    }
+}
