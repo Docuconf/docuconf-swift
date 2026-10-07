@@ -15,6 +15,13 @@ let package = Package(
         // Swift does (including iOS), with no server or Linux-only dependencies.
         .library(name: "DocuconfCore", targets: ["DocuconfCore"]),
     ],
+    traits: [
+        // Off by default, so an app that declares only variables and config files does not build
+        // swift-certificates and swift-crypto. Turn it on to check TLS key pairs, CA bundles and keystores:
+        //   .package(url: "https://github.com/docuconf/docuconf-swift", branch: "main", traits: ["TLS"])
+        .trait(name: "TLS", description: "Boot checks for TLS key pairs, CA bundles and keystores (swift-certificates, swift-crypto)."),
+        .default(enabledTraits: []),
+    ],
     dependencies: [
         // YAML adds YAMLSnapshot, for YAML config-file overlays (it uses Yams, which docuconf already needs).
         .package(url: "https://github.com/apple/swift-configuration", from: "1.2.0", traits: ["JSON", "YAML"]),
@@ -30,13 +37,13 @@ let package = Package(
             dependencies: [
                 "DocuconfCore",
                 .product(name: "Configuration", package: "swift-configuration"),
-                .product(name: "X509", package: "swift-certificates"),
-                .product(name: "Crypto", package: "swift-crypto"),
-                .product(name: "SwiftASN1", package: "swift-asn1"),
                 .product(name: "Yams", package: "Yams"),
+                .product(name: "X509", package: "swift-certificates", condition: .when(traits: ["TLS"])),
+                .product(name: "Crypto", package: "swift-crypto", condition: .when(traits: ["TLS"])),
+                .product(name: "SwiftASN1", package: "swift-asn1", condition: .when(traits: ["TLS"])),
             ]
         ),
-        // A runnable example; not a product.
+        // A runnable example; not a product. Its TLS input needs the trait: swift run --traits TLS GatewayExample
         .executableTarget(
             name: "GatewayExample",
             dependencies: ["Docuconf", .product(name: "Configuration", package: "swift-configuration")],
@@ -51,9 +58,11 @@ let package = Package(
             dependencies: [
                 "Docuconf",
                 "CueTestSupport",
-                .product(name: "X509", package: "swift-certificates"),
-                .product(name: "Crypto", package: "swift-crypto"),
-                .product(name: "_CryptoExtras", package: "swift-crypto"),
+                .product(name: "Configuration", package: "swift-configuration"),
+                .product(name: "X509", package: "swift-certificates", condition: .when(traits: ["TLS"])),
+                .product(name: "Crypto", package: "swift-crypto", condition: .when(traits: ["TLS"])),
+                .product(name: "_CryptoExtras", package: "swift-crypto", condition: .when(traits: ["TLS"])),
+                .product(name: "SwiftASN1", package: "swift-asn1", condition: .when(traits: ["TLS"])),
             ],
             exclude: ["Fixtures"]
         ),

@@ -1,3 +1,4 @@
+#if TLS
 import Docuconf
 import Foundation
 import Testing
@@ -114,3 +115,4 @@ struct TLSConfig: DocuconfConfig {
         #expect(v.map(\.code) == [.keyMismatch, .certificateExpiring, .certificateNameMismatch, .certificateNameMismatch, .certificateInvalid])
     }
 }
+#endif

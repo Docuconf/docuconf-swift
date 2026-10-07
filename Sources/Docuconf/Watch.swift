@@ -1,4 +1,3 @@
-import Crypto
 import DocuconfCore
 import Foundation
 
@@ -70,17 +69,19 @@ extension FileInputHandle {
         return stream
     }
 
-    /// A digest of everything the input reads, or `nil` if it is missing.
-    static func fingerprint(_ spec: FileSpec, _ path: String) -> [UInt8]? {
+    /// A fingerprint of everything the input reads, or `nil` if it is missing: each path, its size and a 64-bit
+    /// FNV-1a hash of its content. It only has to notice a change between two polls, so it needs no crypto.
+    static func fingerprint(_ spec: FileSpec, _ path: String) -> [UInt64]? {
         let paths = spec.type == .tls ? ["tls.crt", "tls.key", "ca.crt"].map { path + "/" + $0 } : [path]
-        var hasher = SHA256()
-        var any = false
+        var out: [UInt64] = []
         for p in paths {
             guard let data = FileManager.default.contents(atPath: p) else { continue }
-            any = true
-            hasher.update(data: Array(p.utf8) + [0])
-            hasher.update(data: data)
+            var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+            for byte in Array(p.utf8) + [0] + Array(data) {
+                hash = (hash ^ UInt64(byte)) &* 0x0000_0100_0000_01b3
+            }
+            out += [hash, UInt64(data.count)]
         }
-        return any ? Array(hasher.finalize()) : nil
+        return out.isEmpty ? nil : out
     }
 }

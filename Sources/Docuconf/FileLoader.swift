@@ -1,9 +1,11 @@
 import Configuration
 import DocuconfCore
 import Foundation
+import Yams
+#if TLS
 import SwiftASN1
 import X509
-import Yams
+#endif
 
 /// Decodes JSON with Foundation and YAML with Yams.
 public struct DefaultDecoding: StructuredDecoding {
@@ -106,7 +108,11 @@ struct FileLoader: Sendable {
         }
 
         let data: Data
+            #if TLS
         do {
+            #else
+            return .failure([Violation(.certificateInvalid, name, "TLS key pairs need docuconf's TLS trait")])
+            #endif
             if let maxSize = spec.maxSize,
                 let size = (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber,
                 size.intValue > maxSize
@@ -134,6 +140,7 @@ struct FileLoader: Sendable {
             switch PEM.certificates(in: data) {
             case .failure(let problems):
                 return .failure([Violation(.fileMalformed, name, "\(path) \(problems[0].message)")])
+        #if TLS
             case .success(let certs):
                 let min = spec.minCertificates ?? 1
                 if certs.count < min {
@@ -151,6 +158,11 @@ struct FileLoader: Sendable {
         return .success(file)
     }
 
+        #else
+        case .caBundle, .keystore:
+            // Unreachable: `Docuconf.load` rejects these declarations without the TLS trait.
+            return .failure([Violation(.fileMalformed, name, "\(spec.type.rawValue) inputs need docuconf's TLS trait")])
+        #endif
     /// Reads a file, mapping permission problems to `file_unreadable` with the Kubernetes hint.
     static func readFile(_ path: String) throws -> Data {
         guard FileManager.default.isReadableFile(atPath: path) else {
@@ -178,6 +190,7 @@ extension Violation {
 enum PEM {
     /// Every certificate in a PEM file. Fails if the file has no PEM blocks or a certificate does not parse.
     static func certificates(in data: Data) -> Checked<[Certificate]> {
+#if TLS
         guard let text = String(data: data, encoding: .utf8) else { return .failure([Violation(.fileMalformed, "", "is not PEM text")]) }
         let documents: [PEMDocument]
         do {
@@ -196,3 +209,4 @@ enum PEM {
         return .success(certs)
     }
 }
+#endif

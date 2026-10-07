@@ -71,6 +71,7 @@ public enum Docuconf {
     static func load<C: DocuconfConfig>(_ type: C.Type, from reader: ConfigReader, options: LoadOptions, violations earlier: [Violation]) async throws -> C {
         let instance = C()
         let declaration = try Declaration(instance: instance)
+        try checkTraits(declaration)
         for w in declaration.warnings { options.warn(w) }
 
         var violations = earlier
@@ -129,6 +130,20 @@ public enum Docuconf {
         guard let path = options.terminationLogPath else { return }
         // Kubernetes keeps the first 4096 bytes; a failure to write must not hide the real error.
         try? Data(error.description.utf8.prefix(4096)).write(to: URL(fileURLWithPath: path))
+    }
+
+    /// File inputs that need a check this build leaves out: TLS key pairs, CA bundles and keystores are checked
+    /// with swift-certificates and swift-crypto, which are built only with the package's `TLS` trait.
+    static func checkTraits(_ declaration: Declaration) throws {
+        #if !TLS
+        let needTLS = declaration.files.filter { [.tls, .caBundle, .keystore].contains($0.type) }
+        if !needTLS.isEmpty {
+            throw DeclarationError(problems: needTLS.map {
+                "\($0.name): \($0.type.rawValue) inputs are checked with swift-certificates and swift-crypto, which docuconf builds only "
+                    + "with its TLS trait; depend on it with .package(url: \"https://github.com/docuconf/docuconf-swift\", ..., traits: [\"TLS\"])"
+            })
+        }
+        #endif
     }
 
     /// Writes a line to standard error.
