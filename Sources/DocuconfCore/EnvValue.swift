@@ -12,7 +12,7 @@ public protocol EnvValue: Sendable {
 }
 
 /// A supported variable type (SPEC §4.3): `String`, `Int`, `Double`, `Bool`, `Duration`, `URL`, `[String]`,
-/// `[Int]`, a ``ConfigEnum`` or a ``JSONConfigValue``.
+/// `[Int]` (or a list of any fixed-width integer), a ``ConfigEnum`` or a ``JSONConfigValue``.
 public protocol EnvBaseValue: EnvValue where Base == Self {
     static var varType: VarType { get }
     /// Adds type-specific contract fields: enum values, list item type, JSON Schema.
@@ -116,38 +116,82 @@ extension URL: EnvBaseValue {
     public var contractValue: JSONValue { .string(absoluteString) }
 }
 
-/// An item type of a `list` variable: `String` or `Int`.
+/// An item type of a `list` variable: `String`, or a fixed-width integer (`Int`, `Int32`, `UInt16`, ...).
+///
+/// An integer type narrower than 64 bits exports its range as the list's `itemMin` / `itemMax` (SPEC §5), so the
+/// platform never sends an item the app cannot hold.
 public protocol ListItem: Sendable {
     static var itemType: VarType { get }
+    /// The range of values the type holds, where it is narrower than a 64-bit signed integer.
+    static var itemBounds: (min: Int?, max: Int?) { get }
+    /// The items of a parsed list, or `nil` when the list holds the other item type or an item does not fit.
+    static func items(of parsed: ParsedValue) -> [Self]?
+    /// A list of these items in parsed form.
+    static func parsed(_ items: [Self]) -> ParsedValue
+    /// The item as contract data.
+    var itemContractValue: JSONValue { get }
 }
 
 extension String: ListItem {
     public static var itemType: VarType { .string }
+    public static var itemBounds: (min: Int?, max: Int?) { (nil, nil) }
+    public static func items(of parsed: ParsedValue) -> [String]? {
+        if case .stringList(let l) = parsed { return l }
+        return nil
+    }
+    public static func parsed(_ items: [String]) -> ParsedValue { .stringList(items) }
+    public var itemContractValue: JSONValue { .string(self) }
 }
 
-extension Int: ListItem {
+extension ListItem where Self: FixedWidthInteger {
     public static var itemType: VarType { .int }
+    public static var itemBounds: (min: Int?, max: Int?) {
+        (Self.min > Int64.min ? Int(exactly: Self.min) : nil, Self.max < Int64.max ? Int(exactly: Self.max) : nil)
+    }
+    public static func items(of parsed: ParsedValue) -> [Self]? {
+        guard case .intList(let l) = parsed else { return nil }
+        var out: [Self] = []
+        out.reserveCapacity(l.count)
+        for i in l {
+            guard let v = Self(exactly: i) else { return nil }
+            out.append(v)
+        }
+        return out
+    }
+    public static func parsed(_ items: [Self]) -> ParsedValue { .intList(items.map { Int(clamping: $0) }) }
+    public var itemContractValue: JSONValue { .int(Int(clamping: self)) }
 }
+
+extension Int: ListItem {}
+extension Int8: ListItem {}
+extension Int16: ListItem {}
+extension Int32: ListItem {}
+extension Int64: ListItem {}
+extension UInt: ListItem {}
+extension UInt8: ListItem {}
+extension UInt16: ListItem {}
+extension UInt32: ListItem {}
+extension UInt64: ListItem {}
 
 extension Array: EnvValue where Element: ListItem {}
 
 extension Array: EnvBaseValue where Element: ListItem {
     public static var varType: VarType { .list }
-    public static func describe(_ spec: inout VarSpec) throws { spec.items = Element.itemType }
+    public static func describe(_ spec: inout VarSpec) throws {
+        spec.items = Element.itemType
+        (spec.itemMin, spec.itemMax) = Element.itemBounds
+    }
     public init(parsed: ParsedValue) throws {
-        switch parsed {
-        case .stringList(let l) where Element.self == String.self: self = l as! [Element]
-        case .intList(let l) where Element.self == Int.self: self = l as! [Element]
-        default: throw Self.mismatch(parsed)
+        guard let items = Element.items(of: parsed) else {
+            if case .intList = parsed, Element.itemType == .int {
+                throw ValueConversionError(.outOfRange, "has an item outside the range of \(Element.self)")
+            }
+            throw Self.mismatch(parsed)
         }
+        self = items
     }
-    public var parsed: ParsedValue {
-        if let s = self as? [String] { return .stringList(s) }
-        return .intList(self as! [Int])
-    }
-    public var contractValue: JSONValue {
-        .array(map { ($0 as? String).map(JSONValue.string) ?? .int($0 as! Int) })
-    }
+    public var parsed: ParsedValue { Element.parsed(self) }
+    public var contractValue: JSONValue { .array(map(\.itemContractValue)) }
 }
 
 /// A string enum as an `enum` variable. Its cases' raw values are the allowed values.

@@ -122,6 +122,15 @@ contract.#Contract & {
 			encoding: "csv"
 			maxItems: 10
 		}
+		RETRY_WEIGHTS: {
+			type: "list"
+			description: "Relative weight of each retry step"
+			configKey: "retry.weights"
+			items: "int"
+			encoding: "csv"
+			itemMin: -2147483648
+			itemMax: 2147483647
+		}
 		SAMPLING_RATIO: {
 			type: "float"
 			description: "Fraction of requests to trace"
@@ -129,6 +138,16 @@ contract.#Contract & {
 			min: 0.0
 			max: 1.0
 			default: 0.25
+		}
+		SHARD_IDS: {
+			type: "list"
+			description: "Shard ids this instance owns"
+			configKey: "shard.ids"
+			items: "int"
+			encoding: "csv"
+			itemMin: 0
+			itemMax: 1023
+			default: [0]
 		}
 		TRACING_ENABLED: {
 			type: "bool"

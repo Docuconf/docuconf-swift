@@ -93,7 +93,7 @@ public struct Env<Value: EnvValue>: AnyEnv {
 
 /// A constraint or metadata for an ``Env`` variable. Which rules are available depends on the type:
 /// `.range` for numbers and durations, `.length` and `.pattern` for strings, `.schemes` for URLs,
-/// `.items` for lists.
+/// `.items` for lists, `.itemRange` for lists of integers.
 public struct VarRule<Base>: Sendable {
     let apply: @Sendable (inout VarSpec) -> Void
 
@@ -146,4 +146,26 @@ extension VarRule where Base: EnvBaseValue & RangeReplaceableCollection, Base.El
     public static func items(_ r: ClosedRange<Int>) -> Self { Self { $0.minItems = r.lowerBound; $0.maxItems = r.upperBound } }
     public static func minItems(_ n: Int) -> Self { Self { $0.minItems = n } }
     public static func maxItems(_ n: Int) -> Self { Self { $0.maxItems = n } }
+}
+
+extension VarRule where Base: EnvBaseValue & RangeReplaceableCollection, Base.Element: ListItem & FixedWidthInteger {
+    /// Bounds on every item of an integer list (`itemMin`, `itemMax`). They must lie within the item type's own
+    /// range, which a narrow type (`[UInt16]`) exports without this rule.
+    public static func itemRange(_ r: ClosedRange<Int>) -> Self {
+        Self { spec in
+            checkItemBound(r.lowerBound, "itemMin", &spec)
+            checkItemBound(r.upperBound, "itemMax", &spec)
+            spec.itemMin = r.lowerBound
+            spec.itemMax = r.upperBound
+        }
+    }
+    public static func itemMin(_ n: Int) -> Self { Self { checkItemBound(n, "itemMin", &$0); $0.itemMin = n } }
+    public static func itemMax(_ n: Int) -> Self { Self { checkItemBound(n, "itemMax", &$0); $0.itemMax = n } }
+
+    private static func checkItemBound(_ n: Int, _ field: String, _ spec: inout VarSpec) {
+        let (lo, hi) = Base.Element.itemBounds
+        if lo.map({ n < $0 }) ?? false || hi.map({ n > $0 }) ?? false {
+            spec.problems.append("\(spec.name): \(field) \(n) is outside the range of \(Base.Element.self)")
+        }
+    }
 }

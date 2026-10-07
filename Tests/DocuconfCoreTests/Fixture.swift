@@ -68,6 +68,12 @@ struct GatewayConfig: DocuconfConfig {
     @Env("retry.backoffMs", "Retry backoff steps in milliseconds", .maxItems(10))
     var retryBackoff: [Int]?
 
+    @Env("shard.ids", "Shard ids this instance owns", .itemRange(0...1023))
+    var shardIds: [UInt16] = [0]
+
+    @Env("retry.weights", "Relative weight of each retry step")
+    var retryWeights: [Int32]?
+
     @Env("api.token", "Token for the partner API", .secret, .length(16...128), .pattern("^[A-Za-z0-9_-]+$"))
     var apiToken: String
 

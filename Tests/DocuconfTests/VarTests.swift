@@ -196,4 +196,54 @@ let validEnv = [
         #expect(a.port == 1001)
         #expect(b.port == 1002)
     }
+
+    @Test func listItemBounds() async throws {
+        struct C: DocuconfConfig {
+            @Env("shards", "Shard ids this instance owns", .itemRange(0...1023)) var shards: [Int] = []
+            @Env("ports", "Ports to listen on") var ports: [UInt16]?
+        }
+        let ok = try await Sandbox(["SHARDS": "0,7,1023", "PORTS": "80,65535"]).load(C.self)
+        #expect(ok.shards == [0, 7, 1023])
+        #expect(ok.ports == [80, 65535])
+        let bad = try Sandbox(["SHARDS": "3,-1", "PORTS": "65536"])
+        let v = await bad.violations(C.self)
+        #expect(v.map(\.code) == [.outOfRange, .outOfRange])
+        #expect(v.map(\.input).sorted() == ["PORTS", "SHARDS"])
+        #expect(v.contains { $0.message.contains("item 1 is below itemMin 0") })
+        #expect(v.contains { $0.message.contains("item 0 is above itemMax 65535") })
+    }
+
+    /// Inputs from the shared conformance suite, through the declaration path (swift-configuration parsing).
+    @Test func conformanceInputsThroughTheDeclarationPath() async throws {
+        struct C: DocuconfConfig {
+            @Env("offset", "Signed offset applied to every index") var offset: Int?
+            @Env("shards", "Shard ids this instance owns", .itemRange(0...1023)) var shards: [Int]?
+            @Env("scale", "Multiplier applied to every score") var scale: Double?
+            @Env("name", "Display name of the service", .length(2...5)) var name: String?
+            @Env("note", "Free text, kept exactly as given") var note: String?
+            @Env("callback", "Where to send webhooks") var callback: URL?
+            @Env("log.level", "Minimum level to log") var level = LogLevel.info
+            @Env("strict", "Reject unknown fields") var strict: Bool?
+        }
+        let ok = try await Sandbox(["OFFSET": "9223372036854775807", "SCALE": "1e3", "NAME": "日本", "NOTE": "  padded \n"]).load(C.self)
+        #expect(ok.offset == Int.max)
+        #expect(ok.scale == 1000)
+        #expect(ok.name == "日本")
+        #expect(ok.note == "  padded \n")
+
+        func codes(_ env: [String: String]) async throws -> [String] {
+            await (try Sandbox(env)).violations(C.self).map { "\($0.input)/\($0.code.rawValue)" }.sorted()
+        }
+        #expect(try await codes(["OFFSET": "99999999999999999999"]) == ["OFFSET/out_of_range"])
+        #expect(try await codes(["OFFSET": "ten"]) == ["OFFSET/invalid_type"])
+        #expect(try await codes(["SHARDS": "1,99999999999999999999"]) == ["SHARDS/out_of_range"])
+        #expect(try await codes(["SHARDS": "1,x"]) == ["SHARDS/invalid_type"])
+        #expect(try await codes(["SCALE": "0,5"]) == ["SCALE/invalid_type"])
+        #expect(try await codes(["SCALE": "Inf"]) == ["SCALE/invalid_type"])
+        #expect(try await codes(["SCALE": "NaN"]) == ["SCALE/invalid_type"])
+        #expect(try await codes(["CALLBACK": "hooks.svc:8080"]) == ["CALLBACK/invalid_type"])
+        #expect(try await codes(["LOG_LEVEL": "WARN"]) == ["LOG_LEVEL/not_in_enum"])
+        #expect(try await codes(["STRICT": "maybe"]) == ["STRICT/invalid_type"])
+        #expect(try await codes(["NAME": ""]) == ["NAME/out_of_range"])
+    }
 }

@@ -13,9 +13,7 @@ Tags are plain semantic versions with no `v` prefix (`0.1.0`, `0.2.0-beta.1`), a
    [SwiftPackageIndex/PackageList](https://github.com/SwiftPackageIndex/PackageList) that adds
    `https://github.com/docuconf/docuconf-swift.git` to `packages.json` (or use the "Add a Package" form on the site).
    `.spi.yml` tells SPI to build documentation for the `Docuconf` and `DocuconfCore` targets.
-3. **Licence.** The licence is still undecided and the repository has no `LICENSE` file. Add one before the first
-   tag: SPI shows packages without a licence as unlicensed, and most organisations cannot adopt them.
-4. **Protect tags** (optional). A tag ruleset limited to maintainers stops anyone else from creating a version.
+3. **Protect tags** (optional). A tag ruleset limited to maintainers stops anyone else from creating a version.
 
 No secret or token is needed: the release workflow only uses the repository's own `GITHUB_TOKEN` to create the
 GitHub release.

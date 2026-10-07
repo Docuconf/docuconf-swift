@@ -15,39 +15,26 @@ enum VarLoader {
         let raw = reader.string(forKey: key, isSecret: spec.secret)
         if spec.secret, let raw { rawSecrets[spec.name] = raw }
 
-        // An injector (vault-env, `op run`) that did not run leaves its reference in place (SPEC §4.5.1).
-        if spec.secret, let raw, let v = InjectorReference.violation(for: spec.name, value: raw) {
-            return [v]
-        }
-
-        let parsed: Result<ParsedValue, Violation>?
-        if raw == "" && spec.type != .string {
-            parsed = nil
-        } else {
-            parsed = read(spec, key: key, raw: raw, reader: reader)
-        }
-
-        guard let parsed else {
-            if spec.required {
-                return [Violation(.missingRequired, spec.name, "is required but not set")]
+        // The steps contract-first mode shares: an injector reference left in a secret (SPEC §4.5.1), required
+        // and unset, then the declared constraints. An empty string is unset for every type but `string`.
+        let outcome = spec.resolve(raw: raw) {
+            if raw == "" && spec.type != .string { return nil }
+            guard let parsed = read(spec, key: key, raw: raw, reader: reader) else { return nil }
+            if let d = spec.deprecated {
+                options.warn("\(spec.name) is deprecated: \(d.message)" + (d.replacedBy.map { " Use \($0) instead." } ?? ""))
             }
+            if spec.secret, let raw, raw.hasSuffix("\n") {
+                options.warn("\(spec.name) ends with a newline. Values are never trimmed; was the Secret created with --from-file?")
+            }
+            return parsed
+        }
+        switch outcome {
+        case .failure(let e):
+            return e.violations
+        case .success(nil):
             input.storeUnset()
             return []
-        }
-
-        if let d = spec.deprecated {
-            options.warn("\(spec.name) is deprecated: \(d.message)" + (d.replacedBy.map { " Use \($0) instead." } ?? ""))
-        }
-        if spec.secret, let raw, raw.hasSuffix("\n") {
-            options.warn("\(spec.name) ends with a newline. Values are never trimmed; was the Secret created with --from-file?")
-        }
-
-        switch parsed {
-        case .failure(let v):
-            return [v]
-        case .success(let value):
-            let violations = spec.check(value)
-            if !violations.isEmpty { return violations }
+        case .success(let value?):
             do {
                 try input.store(value)
                 return []
@@ -76,7 +63,10 @@ enum VarLoader {
             return raw.map { .success(.json($0)) }
         case .int:
             if let i = reader.int(forKey: key, isSecret: secret) { return .success(.int(i)) }
-            return raw == nil ? nil : invalid("is not a base-10 integer")
+            guard let raw else { return nil }
+            // An integer beyond 64 bits is out_of_range, not invalid_type (SPEC §5).
+            if case .failure(.outOfRange) = VarSpec.parseInt(raw) { return .failure(spec.intViolation(.outOfRange, raw)) }
+            return invalid("is not a base-10 integer")
         case .float:
             if let d = reader.double(forKey: key, isSecret: secret) {
                 return d.isFinite ? .success(.double(d)) : invalid("is not a finite number")
@@ -97,7 +87,11 @@ enum VarLoader {
         case .list:
             if spec.items == .int {
                 if let l = reader.intArray(forKey: key, isSecret: secret) { return .success(.intList(l)) }
-                return raw == nil ? nil : invalid("is not a comma-separated list of integers")
+                guard let raw else { return nil }
+                // Integers that only fail for being beyond 64 bits are out_of_range (SPEC §5).
+                let items = raw.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+                if case .failure(let v) = spec.parseItems(items, raw: raw), v.code == .outOfRange { return .failure(v) }
+                return invalid("is not a comma-separated list of integers")
             }
             if let l = reader.stringArray(forKey: key, isSecret: secret) { return .success(.stringList(l)) }
             return raw == nil ? nil : invalid("is not a comma-separated list")

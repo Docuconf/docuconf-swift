@@ -18,8 +18,7 @@ to write a description, mark a secret, set a range or describe a mounted certifi
    before it deploys.
 
 > Status: v0.1, implementing [spec v1alpha1](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md).
-> Expect breaking changes until v1. **Licence: not decided yet.** There is no `LICENSE` file, so for now the code is
-> not licensed for use; one will be added before the first release.
+> Expect breaking changes until v1. Licensed under the [MIT License](LICENSE).
 
 ## Install
 
@@ -130,11 +129,26 @@ and every file input type.
 | `URL` | `url` | `.schemes("postgres", "postgresql")` |
 | a `ConfigEnum` (`String` raw values) | `enum` | the cases are the allowed values |
 | `[String]`, `[Int]` | `list` | `.items(1...5)`, `.minItems`, `.maxItems` |
+| `[Int32]`, `[UInt16]`, any fixed-width integer list | `list` of `int` | as above, plus `.itemRange(0...1023)`, `.itemMin`, `.itemMax` |
 | a `JSONConfigValue` (`Codable` struct) | `json` | JSON Schema derived from the type |
 
 Every variable also takes `.secret`, `.group("database")`, `.examples("eu-west-1")` and
 `.deprecated("Use REQUEST_TIMEOUT", replacedBy: "REQUEST_TIMEOUT")`. The rules a type accepts are checked by the
 compiler: `.schemes` on an `Int` does not build.
+
+**Item bounds.** `.itemRange`, `.itemMin` and `.itemMax` bound every item of an integer list and are exported as
+`itemMin` / `itemMax`; an item outside them is `out_of_range` at boot. A list of an integer type narrower than 64
+bits exports the type's own range without any rule, so the platform never sends an item the app cannot hold:
+
+```swift
+@Env("shard.ids", "Shard ids this instance owns", .itemRange(0...1023)) var shardIDs: [UInt16] = [0]
+// exports itemMin: 0, itemMax: 1023
+@Env("listen.ports", "Extra ports to listen on") var ports: [UInt16]?
+// exports itemMin: 0, itemMax: 65535
+```
+
+A rule bound outside the item type's range (`.itemRange(0...70000)` on `[UInt16]`) is a declaration error. Scalar
+integers are `Int` only.
 
 The declaration itself is checked before any value is read (`DeclarationError`): names, descriptions of at least 5
 characters, defaults that break their own constraints, secrets with defaults or examples, patterns outside RE2
@@ -152,7 +166,8 @@ swift-configuration parses the values, so they mean the same to docuconf as to a
   seconds is what it reads natively (`reader.double(forKey:)`). Contracts still hold Go-syntax durations (`1m30s`); the
   platform renders the number.
 - **Booleans** accept `true`/`false` in any case, and also `yes`/`no`/`1`/`0`, as the host does.
-- On top of the host, docuconf treats an empty string as unset for every type except `string` (SPEC §5), rejects
+- On top of the host, docuconf treats an empty string as unset for every type except `string` (SPEC §5), reports an
+  integer (or integer list item) beyond the 64-bit range as `out_of_range` rather than `invalid_type`, rejects
   `NaN` and infinity, and never trims values. It warns when a secret ends in a newline (a Secret made with
   `--from-file`).
 - **Patterns** are RE2, matched anywhere in the value. They run on Swift Regex with RE2's semantics: Unicode scalars,
@@ -286,13 +301,53 @@ can reuse the parts that matter:
 The likely shape for iOS is a contract exported at build time from the same declaration, with values checked in CI
 against the xcconfig or plist of each build configuration, rather than at app launch.
 
+## Contract-first mode
+
+`ContractDocument` (in `DocuconfCore`) validates an environment against a contract given as JSON, with no Swift
+declaration: for a hand-written `contract.cue` exported with `cue export contract.cue --out json`, or for tooling.
+It parses every wire encoding in SPEC §5, whatever the contract records: lists as `csv` (with its `separator`),
+`json` or `indexed` (`NAME__0`, `NAME__1`, ...), durations as `go`, `iso8601`, `seconds` or `timespan`. The checks
+are the ones `Docuconf.load` runs on a declaration, and every violation is reported together.
+
+```swift
+let contract = try ContractDocument(json: Data(contentsOf: URL(fileURLWithPath: "contract.json")))
+let values = try contract.load()   // or load(environment: [...]); throws ConfigurationError
+if case .int(let port)? = values["PORT"] { print(port) }
+```
+
+Values are `ParsedValue`s (`values.json` gives them all as JSON, durations in canonical Go form). Unset optional
+variables take their contract default, or are absent. Limits: a `json` variable must be valid JSON but is not
+checked against its JSON Schema, and file inputs and overlays in the contract are ignored.
+
+## Conformance
+
+The test suite runs the shared conformance suite (SPEC §12) from docuconf-go through contract-first mode
+(`Tests/DocuconfCoreTests/ConformanceTests.swift`). It reads `cases.json` from `DOCUCONF_CONFORMANCE`, or from a
+`docuconf-go` checkout next to this repository, and is skipped when neither exists unless
+`DOCUCONF_REQUIRE_CONFORMANCE=1` (as in CI):
+
+```sh
+DOCUCONF_CONFORMANCE=../docuconf-go/conformance/cases.json DOCUCONF_REQUIRE_CONFORMANCE=1 \
+  swift test --filter ConformanceTests
+```
+
+A failing case is reported by its `id` (`int/below min`), which points at its YAML source in
+`conformance/load/`. Capability tags this SDK skips:
+
+| Tag | Why |
+| --- | --- |
+| `json-schema` | Contract-first mode has no JSON Schema validator; a `json` value is only checked to be JSON. (Declared `JSONConfigValue` types are checked by decoding into the Swift type.) |
+
+`int64` is supported: `Int` is 64 bits on the platforms the suite runs on (Linux and macOS).
+
 ## Not supported yet
 
 - Profiles (SPEC §4.4): swift-configuration has no profile convention, so baked-in config files are not exported as
   `profiles`. If you layer a JSON file provider under the environment, its values are not in the contract.
 - TOML config files (no TOML decoder in the dependency set).
 - Reloading config-file overlays (`reload: watch`): variables are read once, at boot.
-- Contract-first loading (`contract.cue` at runtime) and Markdown docs, which the spec lists as SHOULDs.
+- Reading `contract.cue` itself in contract-first mode: export it to JSON with `cue export` first.
+- Markdown docs generated from the declaration (a SHOULD in the spec).
 - The `ca.crt` chain check validates against the system clock, not `LoadOptions.now`.
 - A Swift macro that generates the declaration. Property wrappers read by reflection (the approach
   swift-argument-parser uses) need no swift-syntax dependency and keep `DocuconfCore` light for iOS.
@@ -307,7 +362,8 @@ DOCUCONF_UPDATE_GOLDEN=1 swift test --filter ExportTests   # rewrite the golden 
 
 The export tests run `cue vet -c` on the generated contracts against the meta-schema in `docuconf-go/spec/cue`. Set
 `DOCUCONF_SPEC_CUE` to that directory (a sibling `docuconf-go` checkout is found automatically) and have `cue` v0.17.1
-on `PATH` or in `~/go/bin`. Without them the vet is skipped, unless `DOCUCONF_REQUIRE_VET=1`, as in CI. Test
+on `PATH` or in `~/go/bin`. Without them the vet is skipped, unless `DOCUCONF_REQUIRE_VET=1`, as in CI. The conformance suite is found the same
+way (see [Conformance](#conformance)). Test
 certificates are generated by the tests with swift-certificates; the keystore fixtures come from
 `scripts/make-keystore-fixtures.sh`.
 
@@ -316,3 +372,7 @@ certificates are generated by the tests with swift-certificates; the keystore fi
 that will happen.
 
 Releases: see [RELEASING.md](RELEASING.md).
+
+## License
+
+MIT. See [LICENSE](LICENSE).

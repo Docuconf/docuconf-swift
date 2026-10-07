@@ -5,6 +5,28 @@ public enum VarType: String, Sendable, CaseIterable {
     case string, int, float, bool, duration, url, `enum`, list, json
 }
 
+/// How a `duration` value is written in the environment (SPEC §5).
+public enum DurationEncoding: String, Sendable, CaseIterable {
+    /// `1m30s`
+    case go
+    /// `PT90S`
+    case iso8601
+    /// `90`, `1.5`
+    case seconds
+    /// `00:01:30`, `1.02:03:04.5`
+    case timespan
+}
+
+/// How a `list` value is written in the environment (SPEC §5).
+public enum ListEncoding: String, Sendable, CaseIterable {
+    /// `a,b`, joined by the variable's `separator`.
+    case csv
+    /// `["a","b"]`
+    case json
+    /// Separate variables `NAME__0`, `NAME__1`, ...
+    case indexed
+}
+
 /// A numeric bound: `int` bounds stay integers, `float` bounds doubles.
 public enum Number: Sendable, Hashable, CustomStringConvertible {
     case int(Int)
@@ -75,8 +97,20 @@ public struct VarSpec: Sendable {
     public var items: VarType?
     public var minItems: Int?
     public var maxItems: Int?
+    /// Bounds on each item of an `int` list (`itemMin`, `itemMax`). An item type narrower than 64 bits
+    /// (`[Int32]`, `[UInt16]`) sets them to its own range.
+    public var itemMin: Int?
+    public var itemMax: Int?
     // json
     public var schema: JSONValue?
+
+    /// The duration encoding the app parses. Declarations read through swift-configuration always use
+    /// ``durationEncoding`` (`seconds`); a contract loaded in contract-first mode may use any.
+    public var durationWire: DurationEncoding = .seconds
+    /// The list encoding the app parses: ``listEncoding`` (`csv`) for declarations, any in contract-first mode.
+    public var listWire: ListEncoding = .csv
+    /// The `csv` separator.
+    public var separator = ","
 
     /// The default as contract data, if any.
     public var defaultValue: JSONValue?
