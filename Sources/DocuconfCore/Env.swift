@@ -54,17 +54,36 @@ public struct Env<Value: EnvValue>: AnyEnv {
 
     /// A variable with a default.
     public init(wrappedValue: Value, _ key: String, _ description: String, _ rules: VarRule<Value.Base>...) {
-        var spec = Self.makeSpec(key, description, rules)
-        if let d = wrappedValue.base {
-            spec.defaultValue = d.contractValue
-            spec.defaultParsed = d.parsed
-        }
-        self.spec = spec
-        self.box = Box(wrappedValue)
+        self.init(defaultValue: wrappedValue, key, description, rules)
+    }
+
+    /// A variable with a default, with the description labelled:
+    /// `@Env("http.port", description: "HTTP listen port") var port = 8080`.
+    public init(wrappedValue: Value, _ key: String, description: String, _ rules: VarRule<Value.Base>...) {
+        self.init(defaultValue: wrappedValue, key, description, rules)
     }
 
     /// A variable with no default: required, or `nil` when unset if `Value` is optional.
     public init(_ key: String, _ description: String, _ rules: VarRule<Value.Base>...) {
+        self.init(noDefault: key, description, rules)
+    }
+
+    /// A variable with no default, with the description labelled.
+    public init(_ key: String, description: String, _ rules: VarRule<Value.Base>...) {
+        self.init(noDefault: key, description, rules)
+    }
+
+    private init(defaultValue: Value, _ key: String, _ description: String, _ rules: [VarRule<Value.Base>]) {
+        var spec = Self.makeSpec(key, description, rules)
+        if let d = defaultValue.base {
+            spec.defaultValue = d.contractValue
+            spec.defaultParsed = d.parsed
+        }
+        self.spec = spec
+        self.box = Box(defaultValue)
+    }
+
+    private init(noDefault key: String, _ description: String, _ rules: [VarRule<Value.Base>]) {
         var spec = Self.makeSpec(key, description, rules)
         spec.required = !Value.isOptional
         self.spec = spec
@@ -111,10 +130,23 @@ public struct VarRule<Base>: Sendable {
     }
 }
 
-extension VarRule where Base == Int {
-    public static func range(_ r: ClosedRange<Int>) -> Self { Self { $0.min = .int(r.lowerBound); $0.max = .int(r.upperBound) } }
-    public static func min(_ v: Int) -> Self { Self { $0.min = .int(v) } }
-    public static func max(_ v: Int) -> Self { Self { $0.max = .int(v) } }
+extension VarRule where Base: EnvBaseValue & FixedWidthInteger {
+    public static func range(_ r: ClosedRange<Base>) -> Self {
+        Self { $0.min = .int(Int(clamping: r.lowerBound)); $0.max = .int(Int(clamping: r.upperBound)) }
+    }
+    /// A half-open range: `.range(1..<65536)` is `.range(1...65535)`.
+    public static func range(_ r: Range<Base>) -> Self {
+        Self { spec in
+            guard !r.isEmpty else {
+                spec.problems.append("\(spec.name): range \(r) is empty")
+                return
+            }
+            spec.min = .int(Int(clamping: r.lowerBound))
+            spec.max = .int(Int(clamping: r.upperBound - 1))
+        }
+    }
+    public static func min(_ v: Base) -> Self { Self { $0.min = .int(Int(clamping: v)) } }
+    public static func max(_ v: Base) -> Self { Self { $0.max = .int(Int(clamping: v)) } }
 }
 
 extension VarRule where Base == Double {

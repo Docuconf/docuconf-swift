@@ -300,6 +300,15 @@ public struct FileInput<Value: FileValue>: AnyFileInput {
     public var projectedValue: FileInputHandle<Value> { FileInputHandle(spec: spec, box: box, state: state) }
 
     public init(_ name: String, _ description: String, path: String, _ rules: FileRule<Value.Base>...) {
+        self.init(name, description, path, rules)
+    }
+
+    /// The same, with the description labelled: `@FileInput("routes", description: "Routing table", path: ...)`.
+    public init(_ name: String, description: String, path: String, _ rules: FileRule<Value.Base>...) {
+        self.init(name, description, path, rules)
+    }
+
+    private init(_ name: String, _ description: String, _ path: String, _ rules: [FileRule<Value.Base>]) {
         var spec = FileSpec(name: name, type: Value.Base.fileType, description: description, path: path)
         spec.required = !Value.isOptional
         for rule in rules { rule.apply(&spec) }
