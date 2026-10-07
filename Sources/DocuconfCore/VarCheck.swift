@@ -255,6 +255,8 @@ extension VarSpec {
             if let scheme = Self.urlScheme(s) {
                 if let schemes, !schemes.contains(scheme) {
                     add(.invalidScheme, "scheme \(secret ? "" : "\(scheme) ")is not one of \(schemes.joined(separator: ", "))")
+                } else if let maxLength, s.unicodeScalars.count > maxLength {
+                    add(.outOfRange, "is \(s.unicodeScalars.count) characters, longer than \(maxLength)" + shown(s))
                 }
             } else {
                 add(.invalidType, "is not a URL of the form scheme://..." + shown(s))
@@ -265,14 +267,28 @@ extension VarSpec {
             }
         case .stringList(let l):
             out += checkCount(l.count)
+            // Each item after splitting, in Unicode scalars; one violation for the first item out of bounds.
+            if itemMinLength != nil || itemMaxLength != nil,
+                let (i, item) = l.enumerated().first(where: {
+                    let n = $0.element.unicodeScalars.count
+                    return n < itemMinLength ?? 0 || n > itemMaxLength ?? .max
+                })
+            {
+                let n = item.unicodeScalars.count
+                let bound = n < itemMinLength ?? 0 ? "shorter than \(itemMinLength!)" : "longer than \(itemMaxLength!)"
+                add(.outOfRange, "item \(i) is \(n) characters, \(bound)" + shown(item))
+            }
         case .intList(let l):
             out += checkCount(l.count)
             if let (i, item) = l.enumerated().first(where: { $0.element < itemMin ?? .min || $0.element > itemMax ?? .max }) {
                 let bound = item < itemMin ?? .min ? "below itemMin \(itemMin!)" : "above itemMax \(itemMax!)"
                 add(.outOfRange, "item \(i) is \(bound)" + shown(String(item)))
             }
-        case .json:
-            break
+        case .json(let text):
+            // The wire string: the raw value as received at boot, the compact JSON for a default (SPEC §4.3).
+            if let maxLength, text.unicodeScalars.count > maxLength {
+                add(.outOfRange, "is \(text.unicodeScalars.count) characters of JSON, longer than \(maxLength)")
+            }
         }
         return out
     }

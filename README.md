@@ -129,11 +129,12 @@ and every file input type.
 | `Double` | `float` | `.range(0.0...1.0)`, `.min`, `.max` |
 | `Bool` | `bool` | |
 | `Duration` | `duration` | `.range(.seconds(1) ... .seconds(300))`, `.min`, `.max` |
-| `URL` | `url` | `.schemes("postgres", "postgresql")` |
+| `URL` | `url` | `.schemes("postgres", "postgresql")`, `.maxLength` |
 | a `ConfigEnum` (`String` raw values) | `enum` | the cases are the allowed values |
 | `[String]`, `[Int]` | `list` | `.items(1...5)`, `.minItems`, `.maxItems` |
+| `[String]` | `list` of `string` | as above, plus `.itemLength(2...4)`, `.itemMinLength`, `.itemMaxLength` |
 | `[Int32]`, `[UInt16]`, any fixed-width integer list | `list` of `int` | as above, plus `.itemRange(0...1023)`, `.itemMin`, `.itemMax` |
-| a `JSONConfigValue` (`Codable` struct) | `json` | JSON Schema derived from the type |
+| a `JSONConfigValue` (`Codable` struct) | `json` | JSON Schema derived from the type; `.maxLength` |
 
 Every variable also takes `.secret`, `.group("database")`, `.examples("eu-west-1")` and
 `.deprecated("Use REQUEST_TIMEOUT", replacedBy: "REQUEST_TIMEOUT")`. The rules a type accepts are checked by the
@@ -152,6 +153,18 @@ bits exports the type's own range without any rule, so the platform never sends 
 
 A rule bound outside the item type's range (`.itemRange(0...70000)` on `[UInt16]`) is a declaration error. Scalar
 integers are `Int` only.
+
+**Lengths** count characters, meaning Unicode scalars (`unicodeScalars.count`), never bytes or UTF-16 units or
+grapheme clusters: `"日本"` is 2 and `"ZÜ01"` fits `.itemMaxLength(4)`. `.maxLength` on a `URL` bounds the string as
+given; on a `JSONConfigValue` it bounds the wire string, the raw value as received at boot (whitespace included) and
+the compact JSON for a default. `.itemLength`, `.itemMinLength` and `.itemMaxLength` bound each item of a string list
+after it is split, so separators never count. A value outside a length limit is `out_of_range`, and a secret reports
+its length, never its value:
+
+```swift
+@Env("callback.url", "Where to report each run", .schemes("https"), .maxLength(40)) var callback: URL?
+@Env("branches", "Branch codes, two to four characters each", .itemLength(2...4)) var branches: [String] = ["BE"]
+```
 
 The declaration itself is checked before any value is read (`DeclarationError`): names, descriptions of at least 5
 characters, defaults that break their own constraints, secrets with defaults or examples, patterns outside RE2
