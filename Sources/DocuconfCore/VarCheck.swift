@@ -32,8 +32,8 @@ public enum ParsedValue: Sendable, Hashable {
 
 extension VarSpec {
     /// Parses a variable from an environment in its contract's encodings (SPEC §5): the parser of
-    /// contract-first mode (``ContractDocument``). An `indexed` list reads `NAME__0`, `NAME__1`, ... up to the
-    /// first missing index. The server SDK lets swift-configuration parse instead, then shares ``resolve(raw:parse:)``
+    /// contract-first mode (``ContractDocument``). An `indexed` list reads `NAME__0`, `NAME__1`, ...: it is set
+    /// when any `NAME__<n>` is, and its items must run from 0 with no gap (SPEC §5). The server SDK lets swift-configuration parse instead, then shares ``resolve(raw:parse:)``
     /// and ``check(_:)`` with this path.
     ///
     /// Returns the raw value (the first item for an `indexed` list), used for the injector-reference check, and the
@@ -43,10 +43,28 @@ extension VarSpec {
             let raw = env[name]
             return (raw, raw.flatMap { parse(wire: $0) })
         }
+        let count = env.keys.compactMap { Self.listIndex($0, prefix: name + "__") }.max().map { $0 + 1 } ?? 0
+        if count == 0 { return (nil, nil) }
         var items: [String] = []
-        while let item = env["\(name)__\(items.count)"] { items.append(item) }
-        if items.isEmpty { return (nil, nil) }
+        for i in 0..<count {
+            guard let item = env["\(name)__\(i)"] else {
+                return (env["\(name)__0"], .failure(Violation(.invalidType, name,
+                    "items must be numbered from \(name)__0 with no gap, but \(name)__\(i) is not set")))
+            }
+            items.append(item)
+        }
         return (items[0], parseItems(items, raw: items.joined(separator: ",")))
+    }
+
+    /// The index of an `indexed` list item named `key`: a decimal number with no leading zero after `prefix`.
+    /// Other suffixes, such as `NAME__HOST`, are not items.
+    static func listIndex(_ key: String, prefix: String) -> Int? {
+        guard key.hasPrefix(prefix) else { return nil }
+        let rest = key.dropFirst(prefix.count)
+        guard !rest.isEmpty, rest.allSatisfy({ $0.isASCII && $0.isNumber }), rest == "0" || rest.first != "0" else {
+            return nil
+        }
+        return Int(rest)
     }
 
     /// Parses one wire string in the contract's encoding. Returns `nil` for an unset value: an empty string is
