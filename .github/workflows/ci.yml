@@ -57,19 +57,19 @@ jobs:
           cd /tmp/vet && cue vet -c ./svc
 
       - name: Build the orders example
-        run: swift build --package-path examples/orders
+        run: swift build --package-path Examples/Orders
 
       - name: Re-export the orders contract and vet it
         run: |
-          swift run --package-path examples/orders Orders docuconf-export --out /tmp/orders.cue
-          diff -u examples/orders/contract.cue /tmp/orders.cue
+          swift run --package-path Examples/Orders Orders docuconf-export --out /tmp/orders.cue
+          diff -u Examples/Orders/contract.cue /tmp/orders.cue
           rm -rf /tmp/vet-orders && mkdir -p /tmp/vet-orders/svc
           cp -r docuconf-go/spec/cue/cue.mod docuconf-go/spec/cue/contract /tmp/vet-orders/
           cp /tmp/orders.cue /tmp/vet-orders/svc/
           cd /tmp/vet-orders && cue vet -c ./svc
 
       - name: Smoke-test the orders example
-        run: examples/orders/smoke.sh
+        run: Examples/Orders/smoke.sh
 
   core-foundation-only:
     # DocuconfCore must build with nothing but Foundation, so a later iOS

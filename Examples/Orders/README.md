@@ -30,7 +30,7 @@ upper-cased name (`LOG_LEVEL`).
 Swift 6.2 or later:
 
 ```sh
-cd examples/orders
+cd Examples/Orders
 DATABASE_URL=postgres://orders:secret@localhost:5432/orders PORT=8080 swift run Orders
 curl localhost:8080/healthz
 curl localhost:8080/config

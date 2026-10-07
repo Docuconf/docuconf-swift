@@ -20,7 +20,7 @@ to write a description, mark a secret, set a range or describe a mounted certifi
 > Status: v0.1, implementing [spec v1alpha1](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md).
 > Expect breaking changes until v1. Licensed under the [MIT License](LICENSE).
 
-**Example:** [`examples/orders`](examples/orders) is a small HTTP service with its exported `contract.cue`, the same
+**Example:** [`Examples/Orders`](Examples/Orders) is a small HTTP service with its exported `contract.cue`, the same
 service every docuconf SDK ships.
 
 ## Install
