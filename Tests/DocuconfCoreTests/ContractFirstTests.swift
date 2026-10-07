@@ -63,6 +63,27 @@ import Testing
         }
     }
 
+    /// SPEC §5: an indexed list runs from `NAME__0` with no gap, and only decimal suffixes are items.
+    @Test(arguments: [
+        (["HOSTS__0": "a", "HOSTS__2": "c"], nil),
+        (["HOSTS__1": "b"], nil),
+        (["HOSTS__0": "a", "HOSTS__01": "b", "HOSTS__HOST": "x", "HOSTS__": "y"], ["a"]),
+        (["HOSTS__0": "a", "HOSTS__1": "b", "HOSTS__10": "k"], nil),
+    ] as [([String: String], [String]?)])
+    func indexedListItems(env: [String: String], want: [String]?) throws {
+        let doc = try ContractDocument(contract: Self.contract)
+        let env = env.merging(["TOKEN": "t"]) { a, _ in a }
+        if let want {
+            #expect(try doc.load(environment: env)["HOSTS"] == .stringList(want))
+        } else {
+            #expect {
+                try doc.load(environment: env)
+            } throws: { error in
+                (error as! ConfigurationError).violations.map { "\($0.input)/\($0.code.rawValue)" } == ["HOSTS/invalid_type"]
+            }
+        }
+    }
+
     @Test func rejectsABrokenContract() {
         let bad: JSONValue = ["vars": [
             "X": ["type": "list", "description": "String items", "items": "string", "itemMin": 0],
