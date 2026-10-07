@@ -97,6 +97,47 @@ import Testing
         }
     }
 
+    @Test func lengthLimits() throws {
+        let doc = try ContractDocument(contract: [
+            "apiVersion": "docuconf.dev/v1alpha1", "kind": "ConfigContract", "metadata": ["name": "svc"],
+            "vars": [
+                "CALLBACK": ["type": "url", "description": "Callback URL", "schemes": ["https"], "maxLength": 24],
+                "LIMITS": ["type": "json", "description": "Run limits", "maxLength": 16],
+                "BRANCHES": ["type": "list", "description": "Branch codes", "items": "string", "itemMinLength": 2, "itemMaxLength": 4],
+                "IDX": ["type": "list", "description": "Indexed codes", "items": "string", "encoding": "indexed", "itemMaxLength": 4],
+            ],
+        ])
+        let values = try doc.load(environment: [
+            "CALLBACK": "https://例え.jp/日本語の道/一二三四", "LIMITS": #"{"n":"日本語の道路xy"}"#,
+            "BRANCHES": "BE,ZÜ01,GE02", "IDX__0": "😀😀😀😀",
+        ])
+        #expect(values["BRANCHES"] == .stringList(["BE", "ZÜ01", "GE02"]))
+        #expect {
+            try doc.load(environment: [
+                "CALLBACK": "https://a.example/runs/42", "LIMITS": #"{ "max": 123456 }"#, "BRANCHES": "BE,B",
+                "IDX__0": "BE", "IDX__1": "GENEVA",
+            ])
+        } throws: { error in
+            Set((error as! ConfigurationError).violations.map { "\($0.input)/\($0.code.rawValue)" })
+                == ["CALLBACK/out_of_range", "LIMITS/out_of_range", "BRANCHES/out_of_range", "IDX/out_of_range"]
+        }
+    }
+
+    @Test func rejectsItemLengthsOnIntLists() {
+        let bad: JSONValue = ["vars": [
+            "PORTS": ["type": "list", "description": "Ports to open", "items": "int", "itemMaxLength": 5],
+            "LIMITS": ["type": "json", "description": "Run limits", "maxLength": 9, "default": ["a": "<&>"]],
+        ]]
+        #expect {
+            try ContractDocument(contract: bad)
+        } throws: { error in
+            let p = (error as! DeclarationError).problems
+            // {"a":"<&>"} is 11 characters: no HTML escaping.
+            return p.contains("PORTS: itemMinLength and itemMaxLength apply only to lists of strings")
+                && p.contains { $0.hasPrefix("LIMITS: default") && $0.hasSuffix("is 11 characters of JSON, longer than 9") }
+        }
+    }
+
     /// A contract exported from a Swift declaration, turned into JSON by `cue export`, loads in contract-first mode
     /// with the same defaults.
     @Test func roundTripsAnExportedContract() throws {

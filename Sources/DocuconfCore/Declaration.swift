@@ -90,6 +90,19 @@ public struct Declaration: Sendable {
             if let p = v.pattern, let why = RE2.problem(in: p) { problems.append("\(n): pattern \(p) \(why)") }
             if let a = v.minLength, let b = v.maxLength, a > b { problems.append("\(n): minLength \(a) is above maxLength \(b)") }
             if let a = v.minLength, a < 0 { problems.append("\(n): minLength cannot be negative") }
+            if let a = v.maxLength, a < 0 { problems.append("\(n): maxLength cannot be negative") }
+            if v.maxLength != nil && ![.string, .url, .json].contains(v.type) {
+                problems.append("\(n): maxLength applies only to string, url and json variables")
+            }
+            if let a = v.itemMinLength, let b = v.itemMaxLength, a > b {
+                problems.append("\(n): itemMinLength \(a) is above itemMaxLength \(b)")
+            }
+            for (field, x) in [("itemMinLength", v.itemMinLength), ("itemMaxLength", v.itemMaxLength)] {
+                if let x, x < 0 { problems.append("\(n): \(field) cannot be negative") }
+            }
+            if (v.itemMinLength != nil || v.itemMaxLength != nil) && (v.type != .list || v.items != .string) {
+                problems.append("\(n): itemMinLength and itemMaxLength apply only to lists of strings")
+            }
             if let a = v.minItems, let b = v.maxItems, a > b { problems.append("\(n): minItems \(a) is above maxItems \(b)") }
             if let a = v.itemMin, let b = v.itemMax, a > b { problems.append("\(n): itemMin \(a) is above itemMax \(b)") }
             if (v.itemMin != nil || v.itemMax != nil) && (v.type != .list || v.items != .int) {

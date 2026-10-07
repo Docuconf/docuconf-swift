@@ -172,6 +172,24 @@ extension VarRule where Base == String {
 
 extension VarRule where Base == URL {
     public static func schemes(_ s: String...) -> Self { Self { $0.schemes = s } }
+    /// The longest URL accepted, in Unicode scalars (code points), as the string is given.
+    public static func maxLength(_ n: Int) -> Self { Self { $0.maxLength = n } }
+}
+
+extension VarRule where Base: JSONConfigValue {
+    /// The longest value accepted, in Unicode scalars (code points) of its wire string: the raw value as received
+    /// at boot, the compact JSON for a default.
+    public static func maxLength(_ n: Int) -> Self { Self { $0.maxLength = n } }
+}
+
+extension VarRule where Base: EnvBaseValue & RangeReplaceableCollection, Base.Element == String {
+    /// Bounds on the length of every item of a string list (`itemMinLength`, `itemMaxLength`), in Unicode
+    /// scalars (code points), checked after the list is split, so separators never count.
+    public static func itemLength(_ r: ClosedRange<Int>) -> Self {
+        Self { $0.itemMinLength = r.lowerBound; $0.itemMaxLength = r.upperBound }
+    }
+    public static func itemMinLength(_ n: Int) -> Self { Self { $0.itemMinLength = n } }
+    public static func itemMaxLength(_ n: Int) -> Self { Self { $0.itemMaxLength = n } }
 }
 
 extension VarRule where Base: EnvBaseValue & RangeReplaceableCollection, Base.Element: ListItem {

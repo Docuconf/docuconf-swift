@@ -13,6 +13,13 @@ struct ReadmeItemBounds: DocuconfConfig {
     // snippet:end
 }
 
+struct ReadmeLengths: DocuconfConfig {
+    // snippet:lengths
+    @Env("callback.url", "Where to report each run", .schemes("https"), .maxLength(40)) var callback: URL?
+    @Env("branches", "Branch codes, two to four characters each", .itemLength(2...4)) var branches: [String] = ["BE"]
+    // snippet:end
+}
+
 // snippet:overlays
 struct OverlaidConfig: DocuconfConfig {
     static let overlays = [
