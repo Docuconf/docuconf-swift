@@ -3,7 +3,7 @@ import Foundation
 /// The SDK's identity in `metadata.generator`.
 public enum DocuconfSDK {
     public static let name = "docuconf-swift"
-    public static let version = "0.1.0"
+    public static let version = "0.1.0" // x-release-please-version
     public static let language = "swift"
 }
 

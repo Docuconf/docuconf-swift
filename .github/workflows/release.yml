@@ -8,6 +8,7 @@ name: Release
 on:
   push:
     tags: ["[0-9]+.[0-9]+.[0-9]+*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -57,4 +58,6 @@ jobs:
         run: |
           prerelease=""
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes $prerelease
+          # release-please has usually created the release already.
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes $prerelease
