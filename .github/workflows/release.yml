@@ -56,8 +56,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          prerelease=""
-          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
-          # release-please has usually created the release already.
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
-            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes $prerelease
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "The GitHub release $GITHUB_REF_NAME already exists"
+            exit 0
+          fi
+          flags=()
+          case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
+          # The notes lead with the Swift Package Index page and the SwiftPM line; the
+          # generated changelog follows.
+          notes=$(cat <<NOTES
+          Swift Package Index: https://swiftpackageindex.com/docuconf/docuconf-swift (documentation and compatibility)
+
+          \`\`\`swift
+          .package(url: "https://github.com/docuconf/docuconf-swift.git", exact: "$GITHUB_REF_NAME")
+          \`\`\`
+          NOTES
+          )
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --notes "$notes" "${flags[@]}"

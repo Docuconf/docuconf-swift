@@ -39,3 +39,25 @@ checks by hand: `gh workflow run release.yml --ref X.Y.Z`.
 
 A pushed tag must never be moved or deleted: SwiftPM caches resolved revisions, and a moved tag breaks
 `Package.resolved` files that pinned it. Fix a bad release with a new patch version.
+
+## GitHub Packages and Releases
+
+Swift packages need no registry: SwiftPM installs straight from this repository's tags, so there is nothing to put in
+GitHub Packages. The GitHub copy of each release is the GitHub Release that the `release` job creates after the tests
+pass. Its notes start with a link to the package's
+[Swift Package Index page](https://swiftpackageindex.com/docuconf/docuconf-swift) (documentation and platform
+compatibility) and the exact `.package(...)` line for that version, followed by GitHub's generated changelog. If the
+release already exists (for example, a re-run), the job leaves it alone.
+
+It needs no setup: the job uses only the workflow's own `GITHUB_TOKEN` (`contents: write`), which the `Docuconf`
+organization allows unless it has restricted workflow permissions under Organization settings > Actions.
+
+### Installing
+
+No token is needed. In `Package.swift`:
+
+```swift
+.package(url: "https://github.com/docuconf/docuconf-swift.git", from: "0.1.0")
+```
+
+or in Xcode, File > Add Package Dependencies with the same URL.
