@@ -1,9 +1,11 @@
 import Configuration
 import DocuconfCore
 import Foundation
+import Yams
+#if TLS
 import SwiftASN1
 import X509
-import Yams
+#endif
 
 /// Decodes JSON with Foundation and YAML with Yams.
 public struct DefaultDecoding: StructuredDecoding {
@@ -66,7 +68,11 @@ struct FileLoader: Sendable {
         if !present || exists.boolValue != (spec.type == .tls) {
             if spec.required {
                 let what = spec.type == .tls ? "directory" : "file"
-                let reason = present ? "is not a \(what)" : "does not exist"
+                var reason = present ? "is not a \(what)" : "does not exist"
+                if spec.type == .tls { reason += " (it should hold tls.crt and tls.key\(spec.requireCA ? " and ca.crt" : ""))" }
+                if !present && options.fileRoot == nil {
+                    reason += "; for a local run, set DOCUCONF_FILE_ROOT to a directory that mirrors the container's paths"
+                }
                 return [Violation(.fileMissing, spec.name, "\(path) \(reason)")]
             }
             return []
@@ -102,7 +108,11 @@ struct FileLoader: Sendable {
     static func check(_ spec: FileSpec, at path: String, context: FileReloadContext) async -> Checked<LoadedFile> {
         let name = spec.name
         if spec.type == .tls {
+            #if TLS
             return await TLSCheck.check(spec, directory: path, now: context.options.now())
+            #else
+            return .failure([Violation(.certificateInvalid, name, "TLS key pairs need docuconf's TLS trait")])
+            #endif
         }
 
         let data: Data
@@ -130,6 +140,7 @@ struct FileLoader: Sendable {
             }
             let violations = spec.checkText(text)
             if !violations.isEmpty { return .failure(violations) }
+        #if TLS
         case .caBundle:
             switch PEM.certificates(in: data) {
             case .failure(let problems):
@@ -147,6 +158,11 @@ struct FileLoader: Sendable {
                 let with = spec.passwordVar.map { "the password in \($0)" } ?? "an empty password"
                 return .failure([Violation(.keystoreUnreadable, name, "\(path) is not a \(format.rawValue) keystore that opens with \(with): \(problem)")])
             }
+        #else
+        case .caBundle, .keystore:
+            // Unreachable: `Docuconf.load` rejects these declarations without the TLS trait.
+            return .failure([Violation(.fileMalformed, name, "\(spec.type.rawValue) inputs need docuconf's TLS trait")])
+        #endif
         }
         return .success(file)
     }
@@ -174,6 +190,7 @@ extension Violation {
     func with(input: String) -> Violation { Violation(code, input, message) }
 }
 
+#if TLS
 /// PEM helpers on swift-certificates.
 enum PEM {
     /// Every certificate in a PEM file. Fails if the file has no PEM blocks or a certificate does not parse.
@@ -196,3 +213,4 @@ enum PEM {
         return .success(certs)
     }
 }
+#endif

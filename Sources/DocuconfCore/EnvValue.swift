@@ -116,6 +116,45 @@ extension URL: EnvBaseValue {
     public var contractValue: JSONValue { .string(absoluteString) }
 }
 
+/// A fixed-width integer variable other than `Int` (`Int32`, `UInt16`, ...). It is an `int` in the contract, and a
+/// type narrower than 64 bits exports its own range as `min` / `max`, so the platform never sends a value the app
+/// cannot hold. `.range`, `.min` and `.max` narrow it further.
+public protocol FixedWidthEnvValue: EnvBaseValue, FixedWidthInteger, ListItem {}
+
+extension FixedWidthEnvValue {
+    public static var varType: VarType { .int }
+    public static func describe(_ spec: inout VarSpec) throws {
+        let (lo, hi) = itemBounds
+        if let lo { spec.min = .int(lo) }
+        if let hi { spec.max = .int(hi) }
+    }
+    public init(parsed: ParsedValue) throws {
+        guard case .int(let i) = parsed else { throw Self.mismatch(parsed) }
+        guard let v = Self(exactly: i) else { throw ValueConversionError(.outOfRange, "is outside the range of \(Self.self)") }
+        self = v
+    }
+    public var parsed: ParsedValue { .int(Int(clamping: self)) }
+    public var contractValue: JSONValue { .int(Int(clamping: self)) }
+}
+
+extension Int8: FixedWidthEnvValue {}
+extension Int16: FixedWidthEnvValue {}
+extension Int32: FixedWidthEnvValue {}
+extension Int64: FixedWidthEnvValue {}
+extension UInt8: FixedWidthEnvValue {}
+extension UInt16: FixedWidthEnvValue {}
+extension UInt32: FixedWidthEnvValue {}
+
+/// `Float` is not a variable type: values are read as 64-bit floats. The conformance exists only so the
+/// compiler explains that.
+@available(*, unavailable, message: "docuconf reads floating-point variables as Double; declare the property as Double")
+extension Float: EnvBaseValue {
+    public static var varType: VarType { .float }
+    public init(parsed: ParsedValue) throws { fatalError("unavailable") }
+    public var parsed: ParsedValue { fatalError("unavailable") }
+    public var contractValue: JSONValue { fatalError("unavailable") }
+}
+
 /// An item type of a `list` variable: `String`, or a fixed-width integer (`Int`, `Int32`, `UInt16`, ...).
 ///
 /// An integer type narrower than 64 bits exports its range as the list's `itemMin` / `itemMax` (SPEC §5), so the

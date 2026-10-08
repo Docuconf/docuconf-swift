@@ -1,3 +1,4 @@
+#if TLS
 import Crypto
 import DocuconfCore
 import Foundation
@@ -129,3 +130,4 @@ enum KeystoreCheck {
         return Array(out.prefix(length))
     }
 }
+#endif

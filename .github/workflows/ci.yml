@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Nightly against docuconf-go main; push and pull_request use .github/docuconf-go.ref.
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+    inputs:
+      docuconf_go_ref:
+        description: docuconf-go ref to test against (empty means .github/docuconf-go.ref)
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -21,13 +30,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Pick the docuconf-go ref
+        id: dcref
+        env:
+          EVENT: ${{ github.event_name }}
+          OVERRIDE: ${{ inputs.docuconf_go_ref }}
+        run: |
+          if [ "$EVENT" = schedule ]; then echo "ref=main" >> "$GITHUB_OUTPUT"
+          elif [ -n "$OVERRIDE" ]; then echo "ref=$OVERRIDE" >> "$GITHUB_OUTPUT"
+          else echo "ref=$(tr -d '[:space:]' < .github/docuconf-go.ref)" >> "$GITHUB_OUTPUT"; fi
+
       # The contract meta-schema (spec/cue) and the conformance cases
       # (conformance/cases.json) live in docuconf-go; the export tests vet
       # generated contracts against the first, the conformance runner reads
       # the second.
-      - uses: actions/checkout@v4
+      - name: Check out docuconf-go
+        uses: actions/checkout@v4
         with:
           repository: docuconf/docuconf-go
+          ref: ${{ steps.dcref.outputs.ref }}
           path: docuconf-go
 
       - uses: actions/setup-go@v5
@@ -38,8 +59,9 @@ jobs:
       - name: Install cue
         run: go install cuelang.org/go/cmd/cue@v0.17.1 && echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      - run: swift build --build-tests
-      - run: swift test
+      # Everything, including the TLS and keystore checks, which need the package's TLS trait.
+      - run: swift build --build-tests --traits TLS
+      - run: swift test --traits TLS
         env:
           DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
           DOCUCONF_REQUIRE_VET: "1"
@@ -47,7 +69,21 @@ jobs:
           DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
           DOCUCONF_REQUIRE_CONFORMANCE: "1"
 
-      - name: Export the example's contract and vet it
+      # The default build, as most apps get it: no swift-certificates or swift-crypto. This run also checks the
+      # README snippets (ReadmeTests) and that TLS inputs are rejected with a hint.
+      - run: swift build --build-tests
+      - run: swift test
+        env:
+          DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
+          DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
+
+      - name: Smoke-test the README quickstart
+        run: Examples/Quickstart/smoke.sh
+
+      - name: Run scripts/conformance.sh
+        run: DOCUCONF_GO_DIR="$GITHUB_WORKSPACE/docuconf-go" scripts/conformance.sh
+
+      - name: Export the gateway's contract and vet it
         run: |
           swift run GatewayExample docuconf-export --out /tmp/contract.cue
           # Ignores metadata.generator.version, which release PRs bump.
@@ -56,6 +92,11 @@ jobs:
           cp -r docuconf-go/spec/cue/cue.mod docuconf-go/spec/cue/contract /tmp/vet/
           cp /tmp/contract.cue /tmp/vet/svc/
           cd /tmp/vet && cue vet -c ./svc
+
+      - name: Run the gateway as the README shows
+        run: |
+          Examples/Gateway/make-dev-tls.sh
+          DOCUCONF_FILE_ROOT=Examples/Gateway/dev-root DATABASE_URL=postgres://localhost/gw swift run --traits TLS GatewayExample
 
       - name: Build the orders example
         run: swift build --package-path Examples/Orders
@@ -71,6 +112,31 @@ jobs:
 
       - name: Smoke-test the orders example
         run: Examples/Orders/smoke.sh
+
+  frameworks:
+    # The README's Hummingbird and Vapor sections are these packages; their smoke tests run the recipes.
+    name: ${{ matrix.example }} recipe
+    runs-on: ubuntu-latest
+    container: swift:6.3-noble
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [HelloHummingbird, HelloVapor]
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift build --package-path Examples/${{ matrix.example }}
+      - run: Examples/${{ matrix.example }}/smoke.sh
+
+  readme-install:
+    # Builds an app from the README's Install block, pinned to this commit. Only on push: a pull request's
+    # commit is not reachable by SwiftPM from the repository URL.
+    if: github.event_name == 'push'
+    name: README install block
+    runs-on: ubuntu-latest
+    container: swift:6.3-noble
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/check-readme-install.sh "$GITHUB_SHA" "https://github.com/${{ github.repository }}"
 
   core-foundation-only:
     # DocuconfCore must build with nothing but Foundation, so a later iOS
@@ -95,7 +161,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Select the newest Xcode (Swift 6.2 or later is required)
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && swift --version
-      - run: swift build --build-tests
-      - run: swift test
+      - run: swift build --build-tests --traits TLS
+      - run: swift test --traits TLS
       - name: Build DocuconfCore for iOS
         run: xcodebuild build -scheme DocuconfCore -destination 'generic/platform=iOS Simulator' -quiet

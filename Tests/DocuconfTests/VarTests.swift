@@ -66,7 +66,7 @@ let validEnv = [
     @Test func missingRequired() async throws {
         let box = try Sandbox(["API_TOKEN": "tok-123456789"])
         let v = await box.violations(ServiceConfig.self)
-        #expect(v == [Violation(.missingRequired, "DATABASE_URL", "is required but not set")])
+        #expect(v == [Violation(.missingRequired, "DATABASE_URL", "is required but not set (Primary database)")])
     }
 
     @Test func emptyIsUnsetForNonStrings() async throws {

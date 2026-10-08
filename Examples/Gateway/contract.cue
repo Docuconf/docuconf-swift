@@ -78,10 +78,12 @@ contract.#Contract & {
 		tls: {
 			type: "tls"
 			description: "Certificate the gateway serves HTTPS with"
+			required: true
 			secret: true
 			path: "/etc/gateway/tls"
 			dnsNames: ["gateway.internal"]
-			minRemaining: "168h"
+			keyAlgorithms: ["ECDSA"]
+			minRemaining: "720h"
 		}
 	}
 }

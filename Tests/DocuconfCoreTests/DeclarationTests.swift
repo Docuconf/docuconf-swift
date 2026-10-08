@@ -181,4 +181,76 @@ import Testing
         #expect(p.contains("B: itemMin 5 is above itemMax 1"))
         #expect(p.contains { $0.hasPrefix("C: default [1,4] violates its own constraints: item 1 is above itemMax 3") })
     }
+
+    struct RunLimits: JSONConfigValue { var max: Int }
+
+    @Test func lengthLimitsOnURLsJSONAndListItems() throws {
+        struct C: DocuconfConfig {
+            @Env("callback.url", "Where to report the run, PIC X(40)", .schemes("https"), .maxLength(40))
+            var callback = URL(string: "https://ledger.example.com/runs/callback")!
+            @Env("limits", "Run limits as JSON, PIC X(16)", .maxLength(16)) var limits = RunLimits(max: 12_345_678)
+            @Env("branches", "Branch codes of PIC X(4)", .itemLength(2...4)) var branches = ["ZÜ01", "BE", "GE02"]
+            @Env("codes", "Codes", .itemMinLength(1), .itemMaxLength(2)) var codes = ["日本", "😀"]
+        }
+        let v = Dictionary(uniqueKeysWithValues: try Declaration(C.self).vars.map { ($0.name, $0) })
+        #expect(v["CALLBACK_URL"]?.maxLength == 40)
+        #expect(v["LIMITS"]?.maxLength == 16)
+        #expect(v["BRANCHES"]?.itemMinLength == 2 && v["BRANCHES"]?.itemMaxLength == 4)
+        #expect(v["CODES"]?.itemMinLength == 1 && v["CODES"]?.itemMaxLength == 2)
+        let branches = Contract.fields(v["BRANCHES"]!)
+        #expect(branches.first { $0.0 == "itemMinLength" }?.1 == 2)
+        #expect(branches.first { $0.0 == "itemMaxLength" }?.1 == 4)
+        #expect(Contract.fields(v["LIMITS"]!).first { $0.0 == "maxLength" }?.1 == 16)
+        #expect(Contract.fields(v["CALLBACK_URL"]!).first { $0.0 == "maxLength" }?.1 == 40)
+    }
+
+    @Test func lengthLimitDeclarationErrors() {
+        struct C: DocuconfConfig {
+            @Env("codes", "Inverted item lengths", .itemMinLength(5), .itemMaxLength(4)) var codes: [String]?
+            @Env("site", "Default URL too long", .maxLength(10)) var site = URL(string: "https://example.com")!
+            @Env("branches", "Default item too long", .itemMaxLength(4)) var branches = ["BE", "ZÜRICH"]
+            @Env("regions", "Default item too short", .itemMinLength(2)) var regions = ["B"]
+            @Env("limits", "Default JSON too long", .maxLength(16)) var limits = RunLimits(max: 123_456_789)
+        }
+        let p = problems(C.self)
+        #expect(p.contains("CODES: itemMinLength 5 is above itemMaxLength 4"))
+        #expect(p.contains { $0.hasPrefix("SITE: default \"https://example.com\" violates its own constraints: is 19 characters, longer than 10") })
+        #expect(p.contains { $0.hasPrefix("BRANCHES: default [\"BE\",\"ZÜRICH\"] violates its own constraints: item 1 is 6 characters, longer than 4") })
+        #expect(p.contains { $0.hasPrefix("REGIONS: default [\"B\"] violates its own constraints: item 0 is 1 characters, shorter than 2") })
+        #expect(p.contains("LIMITS: default {\"max\":123456789} violates its own constraints: is 17 characters of JSON, longer than 16"))
+
+        // The rules only exist on the right types; a spec built by hand (or a contract) is checked too.
+        var ints = VarSpec(name: "PORTS", key: "ports", type: .list, description: "Ports to open")
+        ints.items = .int
+        ints.itemMaxLength = 5
+        var flag = VarSpec(name: "FLAG", key: "flag", type: .bool, description: "A boolean flag")
+        flag.maxLength = 5
+        let q = Declaration.validate(vars: [ints, flag], files: []).problems
+        #expect(q.contains("PORTS: itemMinLength and itemMaxLength apply only to lists of strings"))
+        #expect(q.contains("FLAG: maxLength applies only to string, url and json variables"))
+    }
+
+    @Test func lengthsCountUnicodeScalars() {
+        var url = VarSpec(name: "U", key: "u", type: .url, description: "A URL")
+        url.maxLength = 24
+        #expect(url.check(.url("https://例え.jp/日本語の道/一二三四")).isEmpty)
+        #expect(url.check(.url("https://例え.jp/日本語の道/一二三四五")).map(\.code) == [.outOfRange])
+        var json = VarSpec(name: "J", key: "j", type: .json, description: "JSON")
+        json.maxLength = 16
+        #expect(json.check(.json(#"{"n":"日本語の道路xy"}"#)).isEmpty)
+        // An emoji is one scalar but two UTF-16 units.
+        #expect(json.check(.json(#"{"n":"😀😀😀😀😀😀😀😀"}"#)).isEmpty)
+        #expect(json.check(.json(#"{ "max": 123456 }"#)).map(\.code) == [.outOfRange])
+        var list = VarSpec(name: "L", key: "l", type: .list, description: "List")
+        list.items = .string
+        list.itemMaxLength = 4
+        #expect(list.check(.stringList(["ZÜ01", "日本", "😀😀😀😀"])).isEmpty)
+        #expect(list.check(.stringList(["BE", "ZÜRICH"])).map(\.code) == [.outOfRange])
+        // A secret reports its length, never its value.
+        var secret = VarSpec(name: "S", key: "s", type: .url, description: "Secret URL")
+        secret.secret = true
+        secret.maxLength = 30
+        let m = secret.check(.url("postgres://app:s3cr3t@db:5432/app")).map(\.message)
+        #expect(m == ["is 33 characters, longer than 30"])
+    }
 }

@@ -29,9 +29,6 @@ struct FilesConfig: DocuconfConfig {
     @FileInput("routes", "Routing table", path: "/etc/svc/routes/routes.json", .pathEnv("ROUTES_FILE"), .maxSize(4096), .reload(.watch))
     var routes: ConfigFile<Routes>
     @FileInput("settings", "Currency and limits", path: "/etc/svc/settings/settings.yaml") var settings: ConfigFile<Settings>?
-    @FileInput("cas", "Private CAs to trust", path: "/etc/svc/ca/bundle.pem", .minCertificates(2)) var cas: CABundle?
-    @FileInput("partner", "Partner keystore", path: "/etc/svc/partner/ks.p12", .passwordVar("KS_PASSWORD")) var partner: Keystore?
-    @FileInput("legacy", "Legacy keystore", path: "/etc/svc/legacy/ks.jks", .passwordVar("KS_PASSWORD")) var legacy: Keystore?
     @FileInput("license", "Licence key", path: "/etc/svc/license/license.key", .pattern("^[A-Z0-9-]{8,}\\n?$"), .maxLength(64)) var license: TextFile?
     @FileInput("geoip", "GeoIP database", path: "/etc/svc/geoip/geo.mmdb", .maxSize(16)) var geoip: BinaryFile?
 }
@@ -41,13 +38,8 @@ let routesJSON = #"{"items":[{"match":"/api","upstream":"http://api:8080"}]}"#
 @Suite struct FileTests {
     @Test func loadsEveryFileType() async throws {
         let box = try Sandbox(["KS_PASSWORD": "changeit"])
-        let ca1 = try TestPKI.ca("CA one")
-        let ca2 = try TestPKI.ca("CA two")
         try box.write("/etc/svc/routes/routes.json", routesJSON)
         try box.write("/etc/svc/settings/settings.yaml", "currency: EUR\nlimits:\n  orders: 10\n")
-        try box.write("/etc/svc/ca/bundle.pem", ca1.certificatePEM + ca2.certificatePEM)
-        try box.write("/etc/svc/partner/ks.p12", Sandbox.fixture("keystore.p12"))
-        try box.write("/etc/svc/legacy/ks.jks", Sandbox.fixture("keystore.jks"))
         try box.write("/etc/svc/license/license.key", "ABCD-1234-EFGH\n")
         try box.write("/etc/svc/geoip/geo.mmdb", Data([1, 2, 3]))
         let c = try await box.load(FilesConfig.self)
@@ -55,9 +47,6 @@ let routesJSON = #"{"items":[{"match":"/api","upstream":"http://api:8080"}]}"#
         #expect(c.routes.path == box.root.path + "/etc/svc/routes/routes.json")
         #expect(c.settings?.currency == .eur)
         #expect(c.settings?.limits == ["orders": 10])
-        #expect(c.cas?.certificateCount == 2)
-        #expect(c.partner?.data.isEmpty == false)
-        #expect(c.legacy?.data.isEmpty == false)
         #expect(c.license?.text == "ABCD-1234-EFGH\n")
         #expect(c.geoip?.data == Data([1, 2, 3]))
     }
@@ -67,7 +56,7 @@ let routesJSON = #"{"items":[{"match":"/api","upstream":"http://api:8080"}]}"#
         try box.write("/etc/svc/routes/routes.json", routesJSON)
         let c = try await box.load(FilesConfig.self)
         #expect(c.settings == nil)
-        #expect(c.partner == nil)
+        #expect(c.license == nil)
     }
 
     @Test func missingRequiredFile() async throws {
@@ -125,37 +114,6 @@ let routesJSON = #"{"items":[{"match":"/api","upstream":"http://api:8080"}]}"#
         #expect(await box.violations(FilesConfig.self).map(\.code) == [.patternMismatch])
     }
 
-    @Test func caBundleCounts() async throws {
-        let box = try Sandbox()
-        try box.write("/etc/svc/routes/routes.json", routesJSON)
-        try box.write("/etc/svc/ca/bundle.pem", try TestPKI.ca().certificatePEM)
-        let v = await box.violations(FilesConfig.self)
-        #expect(v.map(\.code) == [.fileMalformed])
-        #expect(v[0].message.contains("holds 1 certificate; at least 2 required"))
-        try box.write("/etc/svc/ca/bundle.pem", "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n")
-        #expect(await box.violations(FilesConfig.self).map(\.code) == [.fileMalformed])
-    }
-
-    @Test func keystorePasswords() async throws {
-        for (fixture, path) in [("keystore.p12", "/etc/svc/partner/ks.p12"), ("keystore-legacy.p12", "/etc/svc/partner/ks.p12"), ("keystore.jks", "/etc/svc/legacy/ks.jks")] {
-            let good = try Sandbox(["KS_PASSWORD": "changeit"])
-            try good.write("/etc/svc/routes/routes.json", routesJSON)
-            try good.write(path, Sandbox.fixture(fixture))
-            #expect(await good.violations(FilesConfig.self).isEmpty, "\(fixture) opens with the right password")
-
-            let bad = try Sandbox(["KS_PASSWORD": "wrong-password"])
-            try bad.write("/etc/svc/routes/routes.json", routesJSON)
-            try bad.write(path, Sandbox.fixture(fixture))
-            let v = await bad.violations(FilesConfig.self)
-            #expect(v.map(\.code) == [.keystoreUnreadable], "\(fixture) rejects a wrong password")
-            #expect(!v.description.contains("wrong-password"))
-        }
-        let garbage = try Sandbox(["KS_PASSWORD": "changeit"])
-        try garbage.write("/etc/svc/routes/routes.json", routesJSON)
-        try garbage.write("/etc/svc/partner/ks.p12", Data("not a keystore".utf8))
-        #expect(await garbage.violations(FilesConfig.self).map(\.code) == [.keystoreUnreadable])
-    }
-
     @Test func unreadableFile() async throws {
         guard getuid() != 0 else { return }  // root reads everything
         let box = try Sandbox()
@@ -195,7 +153,7 @@ let routesJSON = #"{"items":[{"match":"/api","upstream":"http://api:8080"}]}"#
             @Env("http.port", "HTTP listen port") var port = 8080
             @Env("database.url", "Primary database", .secret) var databaseURL: URL
             @FileInput("routes", "Routing table", path: "/etc/svc/routes/routes.json") var routes: ConfigFile<Routes>
-            @FileInput("tls", "Serving certificate", path: "/etc/svc/tls") var tls: TLSKeyPair
+            @FileInput("license", "Licence key", path: "/etc/svc/license/license.key") var license: TextFile
         }
         let box = try Sandbox(["HTTP_PORT": "eighty"])
         try box.write("/etc/svc/routes/routes.json", "[")

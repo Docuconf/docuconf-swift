@@ -1,3 +1,4 @@
+#if TLS
 import DocuconfCore
 import Foundation
 import SwiftASN1
@@ -148,3 +149,4 @@ enum TLSCheck {
         }
     }
 }
+#endif

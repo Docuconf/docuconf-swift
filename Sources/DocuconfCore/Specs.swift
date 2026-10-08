@@ -79,7 +79,8 @@ public struct VarSpec: Sendable {
     public var examples: [String]?
     public var deprecated: Deprecation?
 
-    // string
+    // string; maxLength also bounds a url, and a json value's wire string
+    /// Lengths count Unicode scalars (code points), never bytes or UTF-16 units.
     public var minLength: Int?
     public var maxLength: Int?
     public var pattern: String?
@@ -101,6 +102,10 @@ public struct VarSpec: Sendable {
     /// (`[Int32]`, `[UInt16]`) sets them to its own range.
     public var itemMin: Int?
     public var itemMax: Int?
+    /// Bounds on the length of each item of a `string` list (`itemMinLength`, `itemMaxLength`), in Unicode
+    /// scalars, checked after the list is split.
+    public var itemMinLength: Int?
+    public var itemMaxLength: Int?
     // json
     public var schema: JSONValue?
 

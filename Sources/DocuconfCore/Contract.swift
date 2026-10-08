@@ -95,6 +95,7 @@ public enum Contract {
             if let x = v.maxDuration { out.append(("max", .string(GoDuration.format(x)))) }
         case .url:
             if let x = v.schemes { out.append(("schemes", .array(x.map(JSONValue.string)))) }
+            if let x = v.maxLength { out.append(("maxLength", .int(x))) }
         case .enum:
             out.append(("values", .array((v.values ?? []).map(JSONValue.string))))
         case .list:
@@ -105,7 +106,10 @@ public enum Contract {
             if let x = v.maxItems { out.append(("maxItems", .int(x))) }
             if let x = v.itemMin { out.append(("itemMin", .int(x))) }
             if let x = v.itemMax { out.append(("itemMax", .int(x))) }
+            if let x = v.itemMinLength { out.append(("itemMinLength", .int(x))) }
+            if let x = v.itemMaxLength { out.append(("itemMaxLength", .int(x))) }
         case .json:
+            if let x = v.maxLength { out.append(("maxLength", .int(x))) }
             if let s = v.schema { out.append(("schema", s)) }
         case .bool:
             break
