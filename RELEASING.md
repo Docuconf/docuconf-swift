@@ -26,6 +26,9 @@ GitHub release.
    DOCUCONF_UPDATE_GOLDEN=1 swift test --filter ExportTests
    swift run GatewayExample docuconf-export --out Examples/Gateway/contract.cue
    ```
+   For the first release (0.1.0), also switch the README's Install block from `branch: "main"` to
+   `from: "0.1.0"`, and update `scripts/check-readme-install.sh` and `ReadmeTests` (which expect `branch: "main"`)
+   to match. Make sure the macOS job in CI has passed: the package has not been built on macOS before.
 2. Tag the commit and push the tag:
    ```sh
    git tag 0.2.0

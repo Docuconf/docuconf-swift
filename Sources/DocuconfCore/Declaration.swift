@@ -37,20 +37,17 @@ public struct Declaration: Sendable {
     }
 
     package init(instance: some DocuconfConfig) throws {
-        var envs: [any AnyEnv] = []
-        var files: [any AnyFileInput] = []
-        for child in Mirror(reflecting: instance).children {
-            if let e = child.value as? any AnyEnv { envs.append(e) }
-            if let f = child.value as? any AnyFileInput { files.append(f) }
-        }
-        self.envInputs = envs
-        self.fileInputs = files
-        self.vars = envs.map(\.spec)
-        self.files = files.map(\.spec)
+        var walker = InputWalker()
+        walker.walk(instance, path: "")
+        self.envInputs = walker.envs
+        self.fileInputs = walker.files
+        self.vars = walker.envs.map(\.spec)
+        self.files = walker.files.map(\.spec)
         self.overlays = type(of: instance).overlays
         let (problems, warnings) = Self.validate(vars: vars, files: self.files, overlays: overlays)
         self.warnings = warnings
-        if !problems.isEmpty { throw DeclarationError(problems: problems) }
+        let all = walker.problems + problems
+        if !all.isEmpty { throw DeclarationError(problems: all) }
     }
 
     static let reservedDirs: Set<String> = [
@@ -211,5 +208,52 @@ public struct Declaration: Sendable {
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-")
         guard p.unicodeScalars.allSatisfy(allowed.contains) else { return false }
         return !p.split(separator: "/").contains { $0 == "." || $0 == ".." }
+    }
+}
+
+/// Finds every ``Env`` and ``FileInput`` in a configuration value: its own properties and, recursively, those of
+/// plain structs it holds (`var database = DatabaseConfig()`), so grouping variables in a nested struct works.
+/// Inputs inside an optional, a collection, an enum or a class cannot be read reliably (the value may be absent
+/// or replaced), so they are a declaration error rather than silently ignored.
+struct InputWalker {
+    var envs: [any AnyEnv] = []
+    var files: [any AnyFileInput] = []
+    var problems: [String] = []
+
+    mutating func walk(_ value: Any, path: String, depth: Int = 0) {
+        for (i, child) in Mirror(reflecting: value).children.enumerated() {
+            // Property wrapper storage is `_name`; show the property as the user wrote it.
+            let label = (child.label ?? "\(i)").hasPrefix("_") ? String((child.label ?? "").dropFirst()) : (child.label ?? "\(i)")
+            let childPath = path.isEmpty ? label : path + "." + label
+            if let e = child.value as? any AnyEnv {
+                envs.append(e)
+            } else if let f = child.value as? any AnyFileInput {
+                files.append(f)
+            } else if depth < 8 {
+                let mirror = Mirror(reflecting: child.value)
+                switch mirror.displayStyle {
+                case .struct?, .tuple?:
+                    walk(child.value, path: childPath, depth: depth + 1)
+                case nil:
+                    break
+                default:
+                    if Self.containsInputs(child.value, depth: depth + 1) {
+                        let kind = mirror.displayStyle.map { "\($0)" } ?? "value"
+                        problems.append(
+                            "\(childPath): this \(kind) holds @Env or @FileInput properties, which docuconf cannot read there; "
+                                + "keep inputs in plain stored structs (`var db = DatabaseConfig()`), never optional, in a collection or in a class")
+                    }
+                }
+            }
+        }
+    }
+
+    static func containsInputs(_ value: Any, depth: Int) -> Bool {
+        guard depth < 8 else { return false }
+        for child in Mirror(reflecting: value).children {
+            if child.value is any AnyEnv || child.value is any AnyFileInput { return true }
+            if containsInputs(child.value, depth: depth + 1) { return true }
+        }
+        return false
     }
 }

@@ -1,9 +1,11 @@
-import Crypto
 import Docuconf
 import Foundation
+#if TLS
+import Crypto
 import SwiftASN1
 import X509
 import _CryptoExtras
+#endif
 
 /// A temporary directory used as `DOCUCONF_FILE_ROOT`, plus the environment for one load.
 final class Sandbox: @unchecked Sendable {
@@ -64,6 +66,7 @@ final class Sandbox: @unchecked Sendable {
     }
 }
 
+#if TLS
 /// Self-signed CAs and leaf certificates, generated with swift-certificates.
 enum TestPKI {
     enum KeyKind { case p256, rsa, ed25519 }
@@ -119,3 +122,4 @@ enum TestPKI {
         return Issued(certificate: cert, key: key)
     }
 }
+#endif

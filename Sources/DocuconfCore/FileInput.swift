@@ -5,6 +5,8 @@ public protocol FileValue: Sendable {
     associatedtype Base: FileBaseValue
     static var isOptional: Bool { get }
     static func wrap(_ base: Base?) -> Self?
+    /// The value, or `nil` for an absent optional input.
+    var base: Base? { get }
 }
 
 /// The file input types (SPEC §4.6): ``ConfigFile``, ``TLSKeyPair``, ``CABundle``, ``Keystore``, ``TextFile``
@@ -20,6 +22,7 @@ public protocol FileBaseValue: FileValue where Base == Self {
 extension FileBaseValue {
     public static var isOptional: Bool { false }
     public static func wrap(_ base: Self?) -> Self? { base }
+    public var base: Self? { self }
     public static func describe(_ spec: inout FileSpec) throws {}
 }
 
@@ -27,6 +30,7 @@ extension Optional: FileValue where Wrapped: FileBaseValue {
     public typealias Base = Wrapped
     public static var isOptional: Bool { true }
     public static func wrap(_ base: Wrapped?) -> Wrapped?? { .some(base) }
+    public var base: Wrapped? { self }
 }
 
 /// The bytes of a file input, as read by the loader.
@@ -296,6 +300,15 @@ public struct FileInput<Value: FileValue>: AnyFileInput {
     public var projectedValue: FileInputHandle<Value> { FileInputHandle(spec: spec, box: box, state: state) }
 
     public init(_ name: String, _ description: String, path: String, _ rules: FileRule<Value.Base>...) {
+        self.init(name, description, path, rules)
+    }
+
+    /// The same, with the description labelled: `@FileInput("routes", description: "Routing table", path: ...)`.
+    public init(_ name: String, description: String, path: String, _ rules: FileRule<Value.Base>...) {
+        self.init(name, description, path, rules)
+    }
+
+    private init(_ name: String, _ description: String, _ path: String, _ rules: [FileRule<Value.Base>]) {
         var spec = FileSpec(name: name, type: Value.Base.fileType, description: description, path: path)
         spec.required = !Value.isOptional
         for rule in rules { rule.apply(&spec) }
@@ -397,5 +410,22 @@ extension FileSpec {
         if let maxLength, n > maxLength { out.append(Violation(.outOfRange, name, "is longer than \(maxLength) characters\(label)")) }
         if let pattern, !RE2.matches(pattern, text) { out.append(Violation(.patternMismatch, name, "does not match \(pattern)\(label)")) }
         return out
+    }
+}
+
+extension FileInput: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    /// The loaded value, or `<redacted>` for a secret input (TLS key pairs and keystores are always secret).
+    public var description: String { shown(debug: false) }
+
+    public var debugDescription: String { shown(debug: true) }
+
+    /// `dump(config)` shows the same text as `description`, and never the spec, the storage or the bytes.
+    public var customMirror: Mirror { Mirror(self, children: [:], displayStyle: nil) }
+
+    private func shown(debug: Bool) -> String {
+        guard let v = box.value else { return Redaction.notLoaded }
+        if spec.secret { return Redaction.redacted }
+        guard let base = v.base else { return "nil" }
+        return debug ? String(reflecting: base) : String(describing: base)
     }
 }

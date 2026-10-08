@@ -11,7 +11,9 @@ A small HTTP service that declares its configuration with docuconf on top of
 The service has two routes: `GET /healthz` returns `ok`, and `GET /config` returns the loaded configuration as JSON
 with the secret shown as `"***"`. The HTTP server is a few lines of POSIX sockets
 ([`HTTPServer.swift`](Sources/Orders/HTTPServer.swift)), so the example depends on nothing but the SDK; a real
-service would use Hummingbird or Vapor. The package depends on the SDK in this repository (`.package(path: "../..")`).
+service would use Hummingbird or Vapor (see the main README's recipes). The package depends on the SDK in this
+repository as `.package(name: "docuconf-swift", path: "../..")`; the `name:` makes it build whatever the checkout's
+folder is called (a fork, or a ZIP download's `docuconf-swift-main`).
 
 | Variable | Type | Rules |
 |---|---|---|
@@ -44,7 +46,7 @@ With `PORT=0` and no `DATABASE_URL`, the service does not start:
 $ PORT=0 swift run Orders
 docuconf: 2 configuration problems:
   - PORT [out_of_range]: is below min 1 (got "0")
-  - DATABASE_URL [missing_required]: is required but not set
+  - DATABASE_URL [missing_required]: is required but not set (Postgres connection string for the orders database)
 $ echo $?
 1
 ```

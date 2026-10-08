@@ -54,17 +54,36 @@ public struct Env<Value: EnvValue>: AnyEnv {
 
     /// A variable with a default.
     public init(wrappedValue: Value, _ key: String, _ description: String, _ rules: VarRule<Value.Base>...) {
-        var spec = Self.makeSpec(key, description, rules)
-        if let d = wrappedValue.base {
-            spec.defaultValue = d.contractValue
-            spec.defaultParsed = d.parsed
-        }
-        self.spec = spec
-        self.box = Box(wrappedValue)
+        self.init(defaultValue: wrappedValue, key, description, rules)
+    }
+
+    /// A variable with a default, with the description labelled:
+    /// `@Env("http.port", description: "HTTP listen port") var port = 8080`.
+    public init(wrappedValue: Value, _ key: String, description: String, _ rules: VarRule<Value.Base>...) {
+        self.init(defaultValue: wrappedValue, key, description, rules)
     }
 
     /// A variable with no default: required, or `nil` when unset if `Value` is optional.
     public init(_ key: String, _ description: String, _ rules: VarRule<Value.Base>...) {
+        self.init(noDefault: key, description, rules)
+    }
+
+    /// A variable with no default, with the description labelled.
+    public init(_ key: String, description: String, _ rules: VarRule<Value.Base>...) {
+        self.init(noDefault: key, description, rules)
+    }
+
+    private init(defaultValue: Value, _ key: String, _ description: String, _ rules: [VarRule<Value.Base>]) {
+        var spec = Self.makeSpec(key, description, rules)
+        if let d = defaultValue.base {
+            spec.defaultValue = d.contractValue
+            spec.defaultParsed = d.parsed
+        }
+        self.spec = spec
+        self.box = Box(defaultValue)
+    }
+
+    private init(noDefault key: String, _ description: String, _ rules: [VarRule<Value.Base>]) {
         var spec = Self.makeSpec(key, description, rules)
         spec.required = !Value.isOptional
         self.spec = spec
@@ -111,10 +130,23 @@ public struct VarRule<Base>: Sendable {
     }
 }
 
-extension VarRule where Base == Int {
-    public static func range(_ r: ClosedRange<Int>) -> Self { Self { $0.min = .int(r.lowerBound); $0.max = .int(r.upperBound) } }
-    public static func min(_ v: Int) -> Self { Self { $0.min = .int(v) } }
-    public static func max(_ v: Int) -> Self { Self { $0.max = .int(v) } }
+extension VarRule where Base: EnvBaseValue & FixedWidthInteger {
+    public static func range(_ r: ClosedRange<Base>) -> Self {
+        Self { $0.min = .int(Int(clamping: r.lowerBound)); $0.max = .int(Int(clamping: r.upperBound)) }
+    }
+    /// A half-open range: `.range(1..<65536)` is `.range(1...65535)`.
+    public static func range(_ r: Range<Base>) -> Self {
+        Self { spec in
+            guard !r.isEmpty else {
+                spec.problems.append("\(spec.name): range \(r) is empty")
+                return
+            }
+            spec.min = .int(Int(clamping: r.lowerBound))
+            spec.max = .int(Int(clamping: r.upperBound - 1))
+        }
+    }
+    public static func min(_ v: Base) -> Self { Self { $0.min = .int(Int(clamping: v)) } }
+    public static func max(_ v: Base) -> Self { Self { $0.max = .int(Int(clamping: v)) } }
 }
 
 extension VarRule where Base == Double {
@@ -185,5 +217,36 @@ extension VarRule where Base: EnvBaseValue & RangeReplaceableCollection, Base.El
         if lo.map({ n < $0 }) ?? false || hi.map({ n > $0 }) ?? false {
             spec.problems.append("\(spec.name): \(field) \(n) is outside the range of \(Base.Element.self)")
         }
+    }
+}
+
+// MARK: - Printing
+
+/// How a loaded value is shown by `print`, `dump`, string interpolation and debuggers: the value itself, or
+/// `<redacted>` for a secret, so logging a whole configuration struct never leaks one.
+package enum Redaction {
+    package static let redacted = "<redacted>"
+    package static let notLoaded = "<not loaded>"
+}
+
+extension Box: CustomReflectable {
+    /// Hides the stored value from `dump` and `Mirror`.
+    package var customMirror: Mirror { Mirror(self, children: [:]) }
+}
+
+extension Env: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    /// The value, or `<redacted>` for a secret. `print(config)` shows each variable this way.
+    public var description: String { shown(debug: false) }
+
+    public var debugDescription: String { shown(debug: true) }
+
+    /// `dump(config)` shows the same text as `description`, and never the spec or the storage.
+    public var customMirror: Mirror { Mirror(self, children: [:], displayStyle: nil) }
+
+    private func shown(debug: Bool) -> String {
+        guard let v = box.value else { return Redaction.notLoaded }
+        if spec.secret { return Redaction.redacted }
+        guard let base = v.base else { return "nil" }
+        return debug ? String(reflecting: base) : String(describing: base)
     }
 }

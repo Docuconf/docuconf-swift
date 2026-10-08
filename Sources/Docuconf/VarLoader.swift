@@ -30,7 +30,7 @@ enum VarLoader {
         }
         switch outcome {
         case .failure(let e):
-            return e.violations
+            return e.violations.map { explain($0, spec: spec, raw: raw, options: options) }
         case .success(nil):
             input.storeUnset()
             return []
@@ -39,6 +39,8 @@ enum VarLoader {
                 try input.store(value)
                 return []
             } catch let e as ValueConversionError {
+                // A secret's decoding errors could describe its content; say only what kind of problem it is.
+                if spec.secret && e.code == .schemaMismatch { return [Violation(e.code, spec.name, "does not match its schema")] }
                 return [Violation(e.code, spec.name, e.message)]
             } catch {
                 return [Violation(.invalidType, spec.name, "could not be converted")]
@@ -83,7 +85,14 @@ enum VarLoader {
                 guard d.isFinite, d >= 0, d < 9.2e9 else { return invalid("is not a non-negative number of seconds") }
                 return .success(.duration(.milliseconds(Int64((d * 1000).rounded()))))
             }
-            return raw == nil ? nil : invalid("is not a number of seconds")
+            guard let raw else { return nil }
+            // A Go-style duration (`30s`, `1m30s`) is what the contract and docs show; say what to write instead.
+            if let d = GoDuration.parse(raw) {
+                let x = Double(GoDuration.nanoseconds(d)) / 1e9
+                let seconds = x == x.rounded() && abs(x) < 1e15 ? String(Int64(x)) : "\(x)"
+                return invalid("is not a number of seconds; durations are read as plain seconds, so write \(secret ? "a number such as 30" : seconds)")
+            }
+            return invalid("is not a number of seconds, such as 30 or 1.5")
         case .list:
             if spec.items == .int {
                 if let l = reader.intArray(forKey: key, isSecret: secret) { return .success(.intList(l)) }
@@ -95,6 +104,24 @@ enum VarLoader {
             }
             if let l = reader.stringArray(forKey: key, isSecret: secret) { return .success(.stringList(l)) }
             return raw == nil ? nil : invalid("is not a comma-separated list")
+        }
+    }
+
+    /// Adds what to do to a violation: the variable's description and a near-miss name when it is missing, and
+    /// the value as written when a duration is out of range.
+    static func explain(_ v: Violation, spec: VarSpec, raw: String?, options: LoadOptions) -> Violation {
+        switch v.code {
+        case .missingRequired:
+            var message = v.message + " (\(spec.description))"
+            if let typo = TypoHint.nearMiss(of: spec.name, in: options.environment.keys) {
+                message += "; \(typo) is set, is it a typo?"
+            }
+            return Violation(v.code, v.input, message)
+        case .outOfRange where spec.type == .duration && !spec.secret:
+            guard let raw, let at = v.message.range(of: " (got ") else { return v }
+            return Violation(v.code, v.input, v.message[..<at.lowerBound] + " (got \(quoted(raw)) seconds)")
+        default:
+            return v
         }
     }
 

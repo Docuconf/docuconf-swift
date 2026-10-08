@@ -1,0 +1,4 @@
+docuconf: warning: DATABSE_URL is set but not declared; did you mean DATABASE_URL?
+docuconf: 2 configuration problems:
+  - HTTP_PORT [out_of_range]: is below min 1 (got "0")
+  - DATABASE_URL [missing_required]: is required but not set (Primary Postgres connection string); DATABSE_URL is set, is it a typo?
