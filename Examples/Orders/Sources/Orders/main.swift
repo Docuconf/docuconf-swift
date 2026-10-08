@@ -14,7 +14,7 @@ struct OrdersConfig: DocuconfConfig {
     @Env("log.level", "Minimum log level")
     var logLevel = LogLevel.info
 
-    @Env("database.url", "Postgres connection string for the orders database", .secret, .schemes("postgres"))
+    @Env("database.url", "Postgres connection string for the orders database", .secret, .schemes("postgres"), .maxLength(2048))
     var databaseURL: URL
 
     @Env("allowed.origins", "Origins allowed to call the API (CORS)", .minItems(1))

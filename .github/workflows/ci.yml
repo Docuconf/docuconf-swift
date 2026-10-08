@@ -113,6 +113,25 @@ jobs:
       - name: Smoke-test the orders example
         run: Examples/Orders/smoke.sh
 
+      - name: Install the docuconf CLI
+        working-directory: docuconf-go/cmd/docuconf
+        run: go install .
+
+      # CONFIG.md, CONFIG.agents.md and docs.json are generated from the
+      # committed contract.cue (the exports above write to /tmp, so a
+      # release's metadata.generator.version bump stays in all four files).
+      - name: Generated docs are up to date
+        run: |
+          for dir in Examples/Orders Examples/Gateway; do
+            (
+              cd "$dir"
+              git checkout -- contract.cue
+              docuconf docs contract.cue --check CONFIG.md
+              docuconf docs contract.cue --format agents --check CONFIG.agents.md
+              docuconf docs contract.cue --format model --check docs.json
+            )
+          done
+
   frameworks:
     # The README's Hummingbird and Vapor sections are these packages; their smoke tests run the recipes.
     name: ${{ matrix.example }} recipe

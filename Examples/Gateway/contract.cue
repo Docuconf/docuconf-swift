@@ -18,6 +18,7 @@ contract.#Contract & {
 			secret: true
 			configKey: "database.url"
 			schemes: ["postgres", "postgresql"]
+			maxLength: 2048
 		}
 		HTTP_PORT: {
 			type: "int"
