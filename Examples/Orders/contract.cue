@@ -55,6 +55,7 @@ contract.#Contract & {
 		WORKER_COUNT: {
 			type: "int"
 			description: "Number of background order workers"
+			details: "Each worker takes one order at a time from the queue and holds one database connection, so keep this\nat or below the pool size:\n\n- one connection per worker;\n- plus one for the HTTP handlers."
 			configKey: "worker.count"
 			min: 1
 			max: 64

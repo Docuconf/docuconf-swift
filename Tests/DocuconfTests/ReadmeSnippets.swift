@@ -13,6 +13,22 @@ struct ReadmeItemBounds: DocuconfConfig {
     // snippet:end
 }
 
+struct ReadmeDetails: DocuconfConfig {
+    // snippet:details
+    @Env("request.timeout", """
+        Upstream request timeout
+
+        The gateway gives up on an upstream after this long and answers 504. Keep it below the load
+        balancer's idle timeout; see ``LoadBalancer/idleTimeout``.
+
+        - Note: Read in seconds, as `REQUEST_TIMEOUT=30`.
+        """, .range(.seconds(1) ... .seconds(300)))
+    var requestTimeout: Duration = .seconds(30)
+
+    @Env("worker.count", "Number of request workers", .details("Each holds one database connection.")) var workers = 4
+    // snippet:end
+}
+
 struct ReadmeLengths: DocuconfConfig {
     // snippet:lengths
     @Env("callback.url", "Where to report each run", .schemes("https"), .maxLength(40)) var callback: URL?

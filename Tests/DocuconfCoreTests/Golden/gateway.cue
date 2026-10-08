@@ -108,6 +108,7 @@ contract.#Contract & {
 		REQUEST_TIMEOUT: {
 			type: "duration"
 			description: "Upstream request timeout"
+			details: "The gateway gives up on an upstream after this long and answers 504. Raise it for slow batch\nendpoints; keep it below the load balancer's idle timeout, see `LoadBalancer/idleTimeout`.\n\n# Choosing a value\n\n- p99 latency, from `upstream_seconds`\n- retries\n\n```promql\nhistogram_quantile(0.99, upstream_seconds_bucket)\n```\n\n**Note:** Read in seconds."
 			configKey: "request.timeout"
 			encoding: "seconds"
 			min: "1s"
@@ -193,6 +194,7 @@ contract.#Contract & {
 			type: "config"
 			format: "json"
 			description: "Routing table: path prefixes and their upstreams"
+			details: "Each route maps a path prefix to an upstream URL.\n\nThe longest prefix wins."
 			required: true
 			path: "/etc/gateway/routes/routes.json"
 			pathEnv: "ROUTES_FILE"

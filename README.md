@@ -340,6 +340,35 @@ Every variable also takes `.secret`, `.group("database")`, `.examples("eu-west-1
 `@Env("http.port", description: "HTTP listen port") var port = 8080`. The rules a type accepts are checked by the
 compiler: `.schemes` on an `Int` does not build.
 
+**Descriptions and details.** Every input needs a description of at least 5 characters, and may have `details`:
+CommonMark used only in generated docs, never at runtime, at most 4000 characters. A property wrapper cannot see the
+`///` comment above it, so write the doc comment as the description argument instead, as a multi-line string: its
+first paragraph is the description, on one line, and the rest the details. DocC syntax becomes CommonMark: symbol
+links (` ``Name`` `) become code spans, `<doc:Article>` the article's name, callouts such as `- Note:` and
+`- Important:` bold labels, and `- Parameter`, `- Returns:` and `- Throws:` are dropped. `.details("...")` sets the
+details explicitly, on a variable or a file input:
+
+<!-- snippet: Tests/DocuconfTests/ReadmeSnippets.swift#details -->
+```swift
+@Env("request.timeout", """
+    Upstream request timeout
+
+    The gateway gives up on an upstream after this long and answers 504. Keep it below the load
+    balancer's idle timeout; see ``LoadBalancer/idleTimeout``.
+
+    - Note: Read in seconds, as `REQUEST_TIMEOUT=30`.
+    """, .range(.seconds(1) ... .seconds(300)))
+var requestTimeout: Duration = .seconds(30)
+
+@Env("worker.count", "Number of request workers", .details("Each holds one database connection.")) var workers = 4
+```
+
+`REQUEST_TIMEOUT` exports the description `Upstream request timeout`, and the rest of the text as its details, with
+the symbol link as a code span and the note as `**Note:**`. Blank details, or details
+over 4000 characters (Unicode scalars), are a `DeclarationError`, as a missing description is. Contract-first mode
+accepts `details` and ignores them. `docuconf docs` (in the [docuconf CLI](https://github.com/docuconf/docuconf-go))
+generates CONFIG.md and CONFIG.agents.md from the exported contract; the SDK only exports the text.
+
 **Nested structs.** A plain stored struct property (`var database = DatabaseConfig()`) is searched for inputs, to any
 depth, and its variables are read, checked and exported like the others. Inputs inside an optional, a collection, an
 enum or a class are a `DeclarationError` naming the property, since docuconf could not read them reliably.

@@ -24,7 +24,16 @@ struct OrdersConfig: DocuconfConfig {
     @Env("request.timeout", "Timeout for one request", .range(.seconds(1) ... .seconds(300)))
     var requestTimeout: Duration = .seconds(30)
 
-    @Env("worker.count", "Number of background order workers", .range(1...64))
+    // A description may be a whole doc comment: its first paragraph is the description, the rest the details.
+    @Env("worker.count", """
+        Number of background order workers
+
+        Each worker takes one order at a time from the queue and holds one database connection, so keep this
+        at or below the pool size:
+
+        - one connection per worker;
+        - plus one for the HTTP handlers.
+        """, .range(1...64))
     var workerCount = 4
 }
 

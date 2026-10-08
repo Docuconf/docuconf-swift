@@ -50,7 +50,24 @@ struct GatewayConfig: DocuconfConfig {
     @Env("log.level", "Minimum log level")
     var logLevel = LogLevel.info
 
-    @Env("request.timeout", "Upstream request timeout", .range(.seconds(1) ... .seconds(300)))
+    @Env("request.timeout", """
+        Upstream request timeout
+
+        The gateway gives up on an upstream after this long and answers 504. Raise it for slow batch
+        endpoints; keep it below the load balancer's idle timeout, see ``LoadBalancer/idleTimeout``.
+
+        # Choosing a value
+
+        - p99 latency, from `upstream_seconds`
+        - retries
+
+        ```promql
+        histogram_quantile(0.99, upstream_seconds_bucket)
+        ```
+
+        - Note: Read in seconds.
+        - Parameter ignored: Function callouts are dropped.
+        """, .range(.seconds(1) ... .seconds(300)))
     var requestTimeout: Duration = .seconds(30)
 
     @Env("upstream.timeout", "Old name for the upstream timeout", .deprecated("Use REQUEST_TIMEOUT", replacedBy: "REQUEST_TIMEOUT"))
@@ -90,7 +107,8 @@ struct GatewayConfig: DocuconfConfig {
     var otelEndpoint: URL?
 
     @FileInput("routes", "Routing table: path prefixes and their upstreams", path: "/etc/gateway/routes/routes.json",
-               .pathEnv("ROUTES_FILE"), .reload(.watch), .maxSize(65536))
+               .pathEnv("ROUTES_FILE"), .reload(.watch), .maxSize(65536),
+               .details("Each route maps a path prefix to an upstream URL.\n\nThe longest prefix wins."))
     var routes: ConfigFile<Routes>
 
     @FileInput("settings", "Currency, limits and strictness", path: "/etc/gateway/settings/settings.yaml")

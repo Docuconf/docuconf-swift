@@ -91,7 +91,9 @@ public struct Env<Value: EnvValue>: AnyEnv {
     }
 
     static func makeSpec(_ key: String, _ description: String, _ rules: [VarRule<Value.Base>]) -> VarSpec {
-        var spec = VarSpec(name: EnvName.forKey(key), key: key, type: Value.Base.varType, description: description)
+        let doc = DocText.split(description)
+        var spec = VarSpec(name: EnvName.forKey(key), key: key, type: Value.Base.varType, description: doc.description)
+        spec.details = doc.details
         do {
             try Value.Base.describe(&spec)
         } catch {
@@ -122,6 +124,10 @@ public struct VarRule<Base>: Sendable {
     public static var secret: Self { Self { $0.secret = true } }
     /// Free-form grouping for docs (`database`, `http`).
     public static func group(_ name: String) -> Self { Self { $0.group = name } }
+    /// Long-form documentation in CommonMark: why the input exists and when to change it. Docs only, never read
+    /// at runtime; not blank, and at most 4000 characters. Replaces the details taken from the description's
+    /// later paragraphs (``DocText``).
+    public static func details(_ text: String) -> Self { Self { $0.details = text } }
     /// Example values, for docs.
     public static func examples(_ values: String...) -> Self { Self { $0.examples = values } }
     /// The variable is deprecated; docuconf warns at boot when it is set.

@@ -309,7 +309,9 @@ public struct FileInput<Value: FileValue>: AnyFileInput {
     }
 
     private init(_ name: String, _ description: String, _ path: String, _ rules: [FileRule<Value.Base>]) {
-        var spec = FileSpec(name: name, type: Value.Base.fileType, description: description, path: path)
+        let doc = DocText.split(description)
+        var spec = FileSpec(name: name, type: Value.Base.fileType, description: doc.description, path: path)
+        spec.details = doc.details
         spec.required = !Value.isOptional
         for rule in rules { rule.apply(&spec) }
         do {
@@ -357,6 +359,8 @@ public struct FileRule<Base>: Sendable {
     /// An environment variable the platform sets to the path, for apps that read the location from the
     /// environment. docuconf reads the path from it when set.
     public static func pathEnv(_ name: String) -> Self { Self { $0.pathEnv = name } }
+    /// Long-form documentation in CommonMark (see ``VarRule/details(_:)``).
+    public static func details(_ text: String) -> Self { Self { $0.details = text } }
     /// `.watch` promises the app reloads the file itself; consume `$input.changes()` to do so.
     public static func reload(_ r: Reload) -> Self { Self { $0.reload = r } }
     /// Upper bound in bytes.

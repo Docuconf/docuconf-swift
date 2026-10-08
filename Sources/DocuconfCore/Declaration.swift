@@ -82,6 +82,7 @@ public struct Declaration: Sendable {
             if v.description.unicodeScalars.count < 5 {
                 problems.append("\(n): description must be at least 5 characters")
             }
+            if let p = DocText.problem(v.details) { problems.append("\(n): \(p)") }
             if v.required && v.defaultValue != nil { problems.append("\(n): a required variable cannot have a default") }
             if v.secret && v.defaultValue != nil {
                 problems.append("\(n): a secret cannot have a default (it would ship in the image and the contract)")
@@ -148,6 +149,7 @@ public struct Declaration: Sendable {
             }
             if !fileNames.insert(n).inserted { problems.append("\(n): file input declared twice") }
             if f.description.unicodeScalars.count < 5 { problems.append("\(n): description must be at least 5 characters") }
+            if let p = DocText.problem(f.details) { problems.append("\(n): \(p)") }
             if !isAbsoluteNormalized(f.path) {
                 problems.append("\(n): path \(f.path) must be absolute and normalised (no '.', '..', '//' or trailing '/')")
             }
