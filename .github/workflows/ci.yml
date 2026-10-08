@@ -86,7 +86,8 @@ jobs:
       - name: Export the gateway's contract and vet it
         run: |
           swift run GatewayExample docuconf-export --out /tmp/contract.cue
-          diff -u Examples/Gateway/contract.cue /tmp/contract.cue
+          # Ignores metadata.generator.version, which release PRs bump.
+          scripts/check-generated.sh --files Examples/Gateway/contract.cue /tmp/contract.cue
           mkdir -p /tmp/vet/svc
           cp -r docuconf-go/spec/cue/cue.mod docuconf-go/spec/cue/contract /tmp/vet/
           cp /tmp/contract.cue /tmp/vet/svc/
@@ -103,7 +104,7 @@ jobs:
       - name: Re-export the orders contract and vet it
         run: |
           swift run --package-path Examples/Orders Orders docuconf-export --out /tmp/orders.cue
-          diff -u Examples/Orders/contract.cue /tmp/orders.cue
+          scripts/check-generated.sh --files Examples/Orders/contract.cue /tmp/orders.cue
           rm -rf /tmp/vet-orders && mkdir -p /tmp/vet-orders/svc
           cp -r docuconf-go/spec/cue/cue.mod docuconf-go/spec/cue/contract /tmp/vet-orders/
           cp /tmp/orders.cue /tmp/vet-orders/svc/

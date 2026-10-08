@@ -10,13 +10,33 @@ import Testing
         try Contract.cue(for: GatewayConfig.self, name: "gateway", appVersion: "1.4.0")
     }
 
+    /// Replaces the value of `metadata.generator.version`. It is `DocuconfSDK.version`, which every release PR
+    /// bumps, so the golden comparison ignores it.
+    static func withoutGeneratorVersion(_ cue: String) -> String {
+        cue.replacingOccurrences(
+            of: #"(generator:\s*\{[^{}]*?\bversion:\s*)"[^"]*""#,
+            with: "$1\"<generator-version>\"",
+            options: .regularExpression)
+    }
+
     @Test func matchesGolden() throws {
         let text = try export()
         if ProcessInfo.processInfo.environment["DOCUCONF_UPDATE_GOLDEN"] == "1" {
             try text.write(to: Self.goldenURL, atomically: true, encoding: .utf8)
         }
         let golden = try String(contentsOf: Self.goldenURL, encoding: .utf8)
-        #expect(text == golden, "export differs from Golden/gateway.cue; rerun with DOCUCONF_UPDATE_GOLDEN=1 and review the diff")
+        #expect(
+            Self.withoutGeneratorVersion(text) == Self.withoutGeneratorVersion(golden),
+            "export differs from Golden/gateway.cue; rerun with DOCUCONF_UPDATE_GOLDEN=1 and review the diff")
+    }
+
+    @Test func goldenComparisonIgnoresOnlyTheGeneratorVersion() throws {
+        let text = try export()
+        let bumped = text.replacingOccurrences(of: "version: \"\(DocuconfSDK.version)\"", with: "version: \"99.0.0\"")
+        #expect(bumped != text)
+        #expect(Self.withoutGeneratorVersion(bumped) == Self.withoutGeneratorVersion(text))
+        let renamed = text.replacingOccurrences(of: "sdk: \"docuconf-swift\"", with: "sdk: \"other\"")
+        #expect(Self.withoutGeneratorVersion(renamed) != Self.withoutGeneratorVersion(text))
     }
 
     @Test func isDeterministic() throws {
