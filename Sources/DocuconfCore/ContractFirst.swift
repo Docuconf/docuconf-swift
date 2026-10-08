@@ -135,6 +135,8 @@ public struct ContractDocument: Sendable {
         let name = string("name") ?? key
         if name != key { problems.append("\(key): name \(name) does not match its key") }
         var spec = VarSpec(name: key, key: string("configKey") ?? key, type: type ?? .string, description: string("description") ?? "")
+        // Docs only: checked with the declaration (not blank, at most 4000 characters), never read.
+        spec.details = string("details")
         spec.required = bool("required")
         spec.secret = bool("secret")
         spec.group = string("group")

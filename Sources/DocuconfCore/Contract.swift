@@ -75,6 +75,7 @@ public enum Contract {
     ///   the environment.
     public static func fields(_ v: VarSpec, overlays: Bool = false) -> [(String, JSONValue)] {
         var out: [(String, JSONValue)] = [("type", .string(v.type.rawValue)), ("description", .string(v.description))]
+        if let d = v.details { out.append(("details", .string(d))) }
         if v.required { out.append(("required", true)) }
         if v.secret { out.append(("secret", true)) }
         if let g = v.group { out.append(("group", .string(g))) }
@@ -124,6 +125,7 @@ public enum Contract {
         if f.type == .config, let fmt = f.format { out.append(("format", .string(fmt.rawValue))) }
         if f.type == .keystore { out.append(("format", .string((f.keystoreFormat ?? .pkcs12).rawValue))) }
         out.append(("description", .string(f.description)))
+        if let d = f.details { out.append(("details", .string(d))) }
         if f.required { out.append(("required", true)) }
         if f.secret { out.append(("secret", true)) }
         out.append(("path", .string(f.path)))

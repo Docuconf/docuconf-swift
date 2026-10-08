@@ -73,6 +73,8 @@ public struct VarSpec: Sendable {
     public var key: String
     public var type: VarType
     public var description: String
+    /// CommonMark for generated docs only (SPEC §4.2); never read at runtime.
+    public var details: String?
     public var required = false
     public var secret = false
     public var group: String?
@@ -174,6 +176,8 @@ public struct FileSpec: Sendable {
     public var name: String
     public var type: FileType
     public var description: String
+    /// CommonMark for generated docs only (SPEC §4.2); never read at runtime.
+    public var details: String?
     public var path: String
     public var required = false
     public var secret = false
