@@ -5,6 +5,8 @@ the Kubernetes platform that runs it. You declare your configuration once, as a 
 environment and mounted files at boot, reports every problem at once, and exports a `contract.cue` that the platform
 checks before it deploys.
 
+Documentation: [docuconf.dev](https://docuconf.dev) · [Swift guide](https://docuconf.dev/languages/swift/)
+
 It builds on Apple's [swift-configuration](https://github.com/apple/swift-configuration): values are read through a
 `ConfigReader`, with its key names and parsing, so `reader.int(forKey: "http.port")` elsewhere in your app reads the
 same value. It works with Hummingbird, Vapor or plain SwiftNIO.
@@ -472,7 +474,7 @@ struct GatewayConfig: DocuconfConfig {
     @Env("http.port", "HTTP listen port", .range(1...65535))
     var port = 8443
 
-    @Env("database.url", "Primary Postgres connection string", .secret, .schemes("postgres", "postgresql"))
+    @Env("database.url", "Primary Postgres connection string", .secret, .schemes("postgres", "postgresql"), .maxLength(2048))
     var databaseURL: URL
 
     @Env("log.level", "Minimum log level")
@@ -497,6 +499,10 @@ Run it from this repository. `make-dev-tls.sh` writes a self-signed development 
 Examples/Gateway/make-dev-tls.sh
 DOCUCONF_FILE_ROOT=Examples/Gateway/dev-root DATABASE_URL=postgres://localhost/gw swift run --traits TLS GatewayExample
 ```
+
+Its contract is [`Examples/Gateway/contract.cue`](Examples/Gateway/contract.cue), and the docs generated from it by
+`docuconf docs`, as for [the orders example](Examples/Orders#generated-docs), are
+[`CONFIG.md`](Examples/Gateway/CONFIG.md) and [`CONFIG.agents.md`](Examples/Gateway/CONFIG.agents.md).
 
 **Schemas from code.** The JSON Schema for a `ConfigFile<T>` (or a `JSONConfigValue`) is derived from `T`'s
 `Decodable` conformance by decoding it once with a recording decoder: properties read with `decode` are required,

@@ -19,7 +19,7 @@ folder is called (a fork, or a ZIP download's `docuconf-swift-main`).
 |---|---|---|
 | `PORT` | int | 1–65535, default `8080` |
 | `LOG_LEVEL` | enum | `debug`, `info`, `warn`, `error`; default `info` |
-| `DATABASE_URL` | url | secret, required, scheme `postgres` |
+| `DATABASE_URL` | url | secret, required, scheme `postgres`, at most 2048 characters |
 | `ALLOWED_ORIGINS` | list of strings | comma-separated, at least 1 item; default `http://localhost:3000` |
 | `REQUEST_TIMEOUT` | duration | number of seconds, 1–300 (`1s`–`5m`), default `30` |
 | `WORKER_COUNT` | int | 1–64, default `4` |
@@ -65,6 +65,19 @@ swift run Orders docuconf-export --out contract.cue
 
 This reads no environment, so it runs anywhere. CI re-exports the contract, fails if it differs from the committed
 `contract.cue`, and runs `cue vet -c` on it against the meta-schema.
+
+## Generated docs
+
+[`CONFIG.md`](CONFIG.md), the reference for developers, and [`CONFIG.agents.md`](CONFIG.agents.md), the rules and
+facts AI agents need, are generated from `contract.cue` by the `docuconf` CLI from
+[docuconf-go](https://github.com/docuconf/docuconf-go), through the docs model in [`docs.json`](docs.json). Never
+edit them by hand; regenerate them after exporting the contract (CI fails if they are out of date):
+
+```sh
+docuconf docs contract.cue -o CONFIG.md
+docuconf docs contract.cue --format agents -o CONFIG.agents.md
+docuconf docs contract.cue --format model -o docs.json
+```
 
 ## Deploy
 

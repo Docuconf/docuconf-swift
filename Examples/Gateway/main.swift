@@ -22,7 +22,7 @@ struct GatewayConfig: DocuconfConfig {
     @Env("http.port", "HTTP listen port", .range(1...65535))
     var port = 8443
 
-    @Env("database.url", "Primary Postgres connection string", .secret, .schemes("postgres", "postgresql"))
+    @Env("database.url", "Primary Postgres connection string", .secret, .schemes("postgres", "postgresql"), .maxLength(2048))
     var databaseURL: URL
 
     @Env("log.level", "Minimum log level")
