@@ -125,7 +125,6 @@ jobs:
           for dir in Examples/Orders Examples/Gateway; do
             (
               cd "$dir"
-              git checkout -- contract.cue
               docuconf docs contract.cue --check CONFIG.md
               docuconf docs contract.cue --format agents --check CONFIG.agents.md
               docuconf docs contract.cue --format model --check docs.json
