@@ -5,6 +5,8 @@ the Kubernetes platform that runs it. You declare your configuration once, as a 
 environment and mounted files at boot, reports every problem at once, and exports a `contract.cue` that the platform
 checks before it deploys.
 
+Documentation: [docuconf.dev](https://docuconf.dev) · [Swift guide](https://docuconf.dev/languages/swift/)
+
 It builds on Apple's [swift-configuration](https://github.com/apple/swift-configuration): values are read through a
 `ConfigReader`, with its key names and parsing, so `reader.int(forKey: "http.port")` elsewhere in your app reads the
 same value. It works with Hummingbird, Vapor or plain SwiftNIO.
