@@ -417,8 +417,10 @@ swift-configuration parses the values, so they mean the same to docuconf as to a
   and bounds in Go syntax (`30s`, `1m30s`), and the platform renders the number. A Go-style value in the environment
   is rejected with the number to write instead: `REQUEST_TIMEOUT [invalid_type]: is not a number of seconds;
   durations are read as plain seconds, so write 30 (got "30s")`.
-- **Lists** use the `csv` encoding (`a,b`), which `EnvironmentVariablesProvider` splits on `,`. It trims whitespace
-  around items; the platform never renders any.
+- **Lists** use the `csv` encoding (`a,b`). docuconf splits a list given as one string on `,` itself, because
+  `EnvironmentVariablesProvider`'s array decoder trims whitespace around items and SPEC §5 forbids that: `" a,b"`
+  is `[" a", "b"]`, and `"80, 443"` for a list of integers is `invalid_type`. A provider with real arrays (a JSON
+  or YAML config file) is read with `stringArray`/`intArray`.
 - **Booleans** accept `true`/`false` in any case, and also `yes`/`no`/`1`/`0`, as the host does.
 - On top of the host, docuconf treats an empty string as unset for every type except `string` (SPEC §5), reports an
   integer (or integer list item) beyond the 64-bit range as `out_of_range` rather than `invalid_type`, rejects
@@ -639,8 +641,15 @@ if case .int(let port)? = values["PORT"] { print(port) }
 ```
 
 Values are `ParsedValue`s (`values.json` gives them all as JSON, durations in canonical Go form). Unset optional
-variables take their contract default, or are absent. Limits: a `json` variable must be valid JSON but is not
-checked against its JSON Schema, and file inputs and overlays in the contract are ignored.
+variables take their contract default, or are absent. A `json` variable must be valid JSON and match its `schema`,
+or it is `schema_mismatch`. The validator (`JSONSchemaValidator`, no dependency) enforces the keywords docuconf
+contracts use: `type`, `enum`, `const`, `properties`, `required`, `additionalProperties`, `minProperties`,
+`maxProperties`, `items`, `minItems`, `maxItems`, `uniqueItems`, `minimum`, `maximum`, `exclusiveMinimum`,
+`exclusiveMaximum`, `multipleOf`, `minLength` and `maxLength` (in Unicode scalars), `pattern` (RE2), `anyOf`,
+`oneOf`, `allOf` and `not`; annotations such as `title`, `description` and `format` are ignored. A schema with any
+other keyword (`$ref`, `patternProperties`, ...) is a `DeclarationError`, not a check silently skipped. Declared
+`JSONConfigValue` variables are still checked by decoding into the Swift type. File inputs and overlays in the
+contract are ignored.
 
 ## Conformance
 
@@ -655,13 +664,9 @@ DOCUCONF_CONFORMANCE=../docuconf-go/conformance/cases.json DOCUCONF_REQUIRE_CONF
 ```
 
 A failing case is reported by its `id` (`int/below min`), which points at its YAML source in
-`conformance/load/`. Capability tags this SDK skips:
-
-| Tag | Why |
-| --- | --- |
-| `json-schema` | Contract-first mode has no JSON Schema validator; a `json` value is only checked to be JSON. (Declared `JSONConfigValue` types are checked by decoding into the Swift type.) |
-
-`int64` is supported: `Int` is 64 bits on the platforms the suite runs on (Linux and macOS).
+`conformance/load/`. Capability tags this SDK skips: none. `json-schema` is supported by contract-first mode's
+validator, and `int64` because `Int` is 64 bits on the platforms the suite runs on (Linux and macOS). With
+`DOCUCONF_REQUIRE_CONFORMANCE=1`, as in CI, a skipped case fails the suite.
 
 ## Not supported yet
 

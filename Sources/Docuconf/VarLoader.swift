@@ -94,16 +94,15 @@ enum VarLoader {
             }
             return invalid("is not a number of seconds, such as 30 or 1.5")
         case .list:
+            // A list given as one string (an environment variable) is split by docuconf, not by
+            // swift-configuration, whose array decoder trims whitespace around each item: SPEC §5 says values,
+            // csv items included, are never trimmed (" a" is the item " a", and " 1" is not an integer).
+            if let raw { return spec.parse(wire: raw) }
+            // A provider with real arrays (a JSON or YAML config file) needs no splitting.
             if spec.items == .int {
-                if let l = reader.intArray(forKey: key, isSecret: secret) { return .success(.intList(l)) }
-                guard let raw else { return nil }
-                // Integers that only fail for being beyond 64 bits are out_of_range (SPEC §5).
-                let items = raw.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
-                if case .failure(let v) = spec.parseItems(items, raw: raw), v.code == .outOfRange { return .failure(v) }
-                return invalid("is not a comma-separated list of integers")
+                return reader.intArray(forKey: key, isSecret: secret).map { .success(.intList($0)) }
             }
-            if let l = reader.stringArray(forKey: key, isSecret: secret) { return .success(.stringList(l)) }
-            return raw == nil ? nil : invalid("is not a comma-separated list")
+            return reader.stringArray(forKey: key, isSecret: secret).map { .success(.stringList($0)) }
         }
     }
 

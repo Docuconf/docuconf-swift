@@ -7,9 +7,9 @@ import Testing
 /// `cases.json` comes from `DOCUCONF_CONFORMANCE`, or else a `docuconf-go` checkout next to this repository. When
 /// it is missing the suite is skipped, unless `DOCUCONF_REQUIRE_CONFORMANCE=1` (as in CI).
 @Suite struct ConformanceTests {
-    /// Capability tags this SDK lacks (see the README): contract-first mode does not validate `json` values
-    /// against their JSON Schema.
-    static let unsupportedTags: Set<String> = ["json-schema"]
+    /// Capability tags this SDK lacks (see the README): none. With `DOCUCONF_REQUIRE_CONFORMANCE=1` (as in CI) a
+    /// skipped case fails the suite, so a tag added here cannot go unnoticed.
+    static let unsupportedTags: Set<String> = []
 
     static let env = ProcessInfo.processInfo.environment
     static let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -54,6 +54,10 @@ import Testing
             }
         }
         let skippedText = skipped.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }.joined(separator: ", ")
+        let skippedCount = skipped.values.reduce(0, +)
+        if skippedCount > 0 && Self.env["DOCUCONF_REQUIRE_CONFORMANCE"] == "1" {
+            Issue.record("\(skippedCount) conformance cases skipped (\(skippedText)); CI requires 0")
+        }
         print("conformance: \(passed) passed, \(skipped.values.reduce(0, +)) skipped\(skippedText.isEmpty ? "" : " (\(skippedText))"), \(failed.count) failed of \(cases.count)")
     }
 

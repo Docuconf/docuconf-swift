@@ -12,7 +12,9 @@ import Foundation
 /// Every encoding in SPEC §5 is parsed: lists as `csv` (with the contract's `separator`), `json` or `indexed`
 /// (`NAME__0`, `NAME__1`, ...), durations as `go`, `iso8601`, `seconds` or `timespan`. The checks are the ones
 /// the declaration path runs (``VarSpec/resolve(raw:parse:)`` and ``VarSpec/check(_:)``). A `json` variable must
-/// be valid JSON; it is not checked against its JSON Schema. File inputs and overlays in the contract are ignored.
+/// be valid JSON and match its `schema` (``JSONSchemaValidator``; a schema with a keyword the validator does not
+/// support is a ``DeclarationError``), or it is `schema_mismatch`. File inputs and overlays in the contract are
+/// ignored.
 public struct ContractDocument: Sendable {
     /// `metadata.name`.
     public let name: String?
@@ -71,13 +73,28 @@ public struct ContractDocument: Sendable {
         for spec in vars {
             let (raw, parsed) = spec.parse(environment: environment)
             switch spec.resolve(raw: raw, parse: { parsed }) {
-            case .success(let value?): values[spec.name] = value
+            case .success(let value?):
+                if let v = Self.schemaViolation(spec, value) { violations.append(v) } else { values[spec.name] = value }
             case .success(nil): if let d = spec.defaultParsed { values[spec.name] = d }
             case .failure(let e): violations += e.violations
             }
         }
         if !violations.isEmpty { throw ConfigurationError(violations: violations) }
         return ContractValues(names: vars.map(\.name), values: values)
+    }
+
+    /// A `json` value that does not match its contract schema. Declared `JSONConfigValue` types are checked by
+    /// decoding instead, so this runs in contract-first mode only.
+    static func schemaViolation(_ spec: VarSpec, _ value: ParsedValue) -> Violation? {
+        guard case .json(let text) = value, let schema = spec.schema,
+            let doc = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
+        else { return nil }
+        let errors = JSONSchemaValidator.validate(doc, against: schema)
+        guard let first = errors.first else { return nil }
+        // Paths and property names come from the document itself, so a secret's message names neither.
+        if spec.secret { return Violation(.schemaMismatch, spec.name, "does not match its schema") }
+        let more = errors.count > 1 ? " (and \(errors.count - 1) more)" : ""
+        return Violation(.schemaMismatch, spec.name, "does not match its schema: \(first)\(more)")
     }
 
     // MARK: - Reading a contract entry
@@ -187,6 +204,11 @@ public struct ContractDocument: Sendable {
             spec.itemMaxLength = int("itemMaxLength")
         case .json:
             spec.schema = entry["schema"]
+            if let schema = spec.schema, schema != .null {
+                problems += JSONSchemaValidator.problems(in: schema).map { "\(key): schema \($0)" }
+            } else {
+                spec.schema = nil
+            }
             spec.maxLength = int("maxLength")
         case .bool:
             break
@@ -195,6 +217,7 @@ public struct ContractDocument: Sendable {
             spec.defaultValue = d
             if let parsed = defaultValue(d, spec) {
                 spec.defaultParsed = parsed
+                if let v = schemaViolation(spec, parsed) { problems.append("\(key): default \(v.message)") }
             } else {
                 problems.append("\(key): default \(d.jsonText) is not a \(spec.type.rawValue)")
             }

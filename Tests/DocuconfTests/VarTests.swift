@@ -213,6 +213,27 @@ let validEnv = [
         #expect(v.contains { $0.message.contains("item 0 is above itemMax 65535") })
     }
 
+    /// SPEC §5: values are never trimmed, csv items included. swift-configuration's array decoder trims each item,
+    /// so docuconf splits a list given as one string itself.
+    @Test func csvItemsAreNotTrimmed() async throws {
+        struct C: DocuconfConfig {
+            @Env("hosts", "Hosts allowed to call us") var hosts: [String]?
+            @Env("ports", "Ports to listen on") var ports: [Int]?
+            @Env("keys", "Keys that verify webhook signatures", .secret, .itemLength(3...8)) var keys: [String]?
+        }
+        let ok = try await Sandbox(["HOSTS": " a, b ,,c", "PORTS": "80,443"]).load(C.self)
+        #expect(ok.hosts == [" a", " b ", "", "c"])
+        #expect(ok.ports == [80, 443])
+        func codes(_ env: [String: String]) async throws -> [String] {
+            await (try Sandbox(env)).violations(C.self).map { "\($0.input)/\($0.code.rawValue)" }.sorted()
+        }
+        #expect(try await codes(["PORTS": "80, 443"]) == ["PORTS/invalid_type"])
+        #expect(try await codes(["PORTS": " 80"]) == ["PORTS/invalid_type"])
+        // " ab" is 3 characters with its space: trimmed, it would be too short; "abc " fits only untrimmed.
+        #expect(try await codes(["KEYS": " ab,abc "]) == [])
+        #expect(try await codes(["KEYS": "abc, "]) == ["KEYS/out_of_range"])
+    }
+
     /// Inputs from the shared conformance suite, through the declaration path (swift-configuration parsing).
     @Test func conformanceInputsThroughTheDeclarationPath() async throws {
         struct C: DocuconfConfig {
