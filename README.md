@@ -402,6 +402,11 @@ its length, never its value:
 @Env("branches", "Branch codes, two to four characters each", .itemLength(2...4)) var branches: [String] = ["BE"]
 ```
 
+A list can be secret, such as a key set: `.secret, .items(1...2), .itemLength(32...256)` on a `[String]?` holds
+`old,new` while a key is rotated, and an empty or truncated key fails at boot. Accepting either key is how a key is
+rotated without downtime ([spec section 6.1](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md#61-rotation));
+the [orders example](Examples/Orders#rotate-a-key) declares one.
+
 **Declaration checks.** The declaration itself is checked before any value is read (`DeclarationError`): names,
 descriptions of at least 5 characters, defaults that break their own constraints, secrets with defaults or examples,
 patterns outside RE2 (lookaround, backreferences, possessive quantifiers), mount directories that clash or hide system
