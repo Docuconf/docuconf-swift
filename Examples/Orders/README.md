@@ -4,16 +4,17 @@ A small HTTP service that declares its configuration with docuconf on top of
 [swift-configuration](https://github.com/apple/swift-configuration). It shows:
 
 - the declaration (`OrdersConfig` in [`Sources/Orders/main.swift`](Sources/Orders/main.swift)): types, ranges, an
-  enum, a list, a duration and a secret, each with a description;
+  enum, lists, a duration and secrets, each with a description;
 - boot validation that reports every problem at once and never prints the secret;
 - the exported contract, [`contract.cue`](contract.cue), that the platform checks before it deploys.
 
-The service has two routes: `GET /healthz` returns `ok`, and `GET /config` returns the loaded configuration as JSON
-with the secret shown as `"***"`. The HTTP server is a few lines of POSIX sockets
-([`HTTPServer.swift`](Sources/Orders/HTTPServer.swift)), so the example depends on nothing but the SDK; a real
-service would use Hummingbird or Vapor (see the main README's recipes). The package depends on the SDK in this
-repository as `.package(name: "docuconf-swift", path: "../..")`; the `name:` makes it build whatever the checkout's
-folder is called (a fork, or a ZIP download's `docuconf-swift-main`).
+The service has three routes: `GET /healthz` returns `ok`, `GET /config` returns the loaded configuration as JSON
+with the secrets shown as `"***"`, and `POST /webhooks/payments` accepts a payment webhook signed with a key in
+`WEBHOOK_KEYS` (see [Rotate a key](#rotate-a-key)). The HTTP server is a few lines of POSIX sockets
+([`HTTPServer.swift`](Sources/Orders/HTTPServer.swift)), so the example depends on nothing but the SDK and
+swift-crypto (for the webhook HMAC); a real service would use Hummingbird or Vapor (see the main README's recipes).
+The package depends on the SDK in this repository as `.package(name: "docuconf-swift", path: "../..")`; the
+`name:` makes it build whatever the checkout's folder is called (a fork, or a ZIP download's `docuconf-swift-main`).
 
 | Variable | Type | Rules |
 |---|---|---|
@@ -23,6 +24,7 @@ folder is called (a fork, or a ZIP download's `docuconf-swift-main`).
 | `ALLOWED_ORIGINS` | list of strings | comma-separated, at least 1 item; default `http://localhost:3000` |
 | `REQUEST_TIMEOUT` | duration | number of seconds, 1–300 (`1s`–`5m`), default `30` |
 | `WORKER_COUNT` | int | 1–64, default `4` |
+| `WEBHOOK_KEYS` | keySet | comma-separated, always secret, optional; 1–2 keys of 32–256 characters each |
 
 Each is read from swift-configuration's key (`log.level`), which `EnvironmentVariablesProvider` maps to the
 upper-cased name (`LOG_LEVEL`).
@@ -53,9 +55,44 @@ $ echo $?
 
 In Kubernetes the same text goes to `/dev/termination-log`, so `kubectl describe pod` shows it.
 
-`./smoke.sh` checks both cases: it builds the app, starts it with a valid environment, checks `/healthz` and that
-`/config` hides the secret, then starts it with `PORT=0` and no `DATABASE_URL` and checks it fails with
-`missing_required` and `out_of_range`.
+`./smoke.sh` checks both cases: it builds the app, starts it with a valid environment, checks `/healthz`, that
+`/config` hides the secrets and that webhooks signed with either key are accepted, then starts it with `PORT=0` and
+no `DATABASE_URL` and checks it fails with `missing_required` and `out_of_range`, and with an empty webhook key.
+
+## Rotate a key
+
+`WEBHOOK_KEYS` is a key set: `POST /webhooks/payments` accepts a body whose `X-Signature` header is the hex
+HMAC-SHA256 of the body under any key in the set: [`Webhook.swift`](Sources/Orders/Webhook.swift) checks it with
+`KeySet.verify`, which tries every key and so does not reveal which one matched. A variable is
+read once, at start, so a new key reaches the service only when the pods restart; with two keys valid at once, no
+webhook is turned away while that happens:
+
+1. Add the new key as the second item (`old,new` in the Secret), and roll out.
+2. Switch the sender to the new key.
+3. Remove the old key (`new`), and roll out.
+
+The generated docs ([`CONFIG.md`](CONFIG.md)) print these steps for every key set. It is declared as
+`@Env("webhook.keys", ..., .keyLength(32...256)) var webhookKeys: KeySet?` (a key set is always secret, and holds 1
+to 2 keys by default), so a trailing comma or a truncated key stops the service at boot instead of locking out the
+sender:
+
+```console
+$ DATABASE_URL=postgres://orders:pw@localhost:5432/orders WEBHOOK_KEYS=old-webhook-key-0123456789abcdef0123, swift run Orders
+docuconf: 1 configuration problem:
+  - WEBHOOK_KEYS [out_of_range]: key 1 is empty (a stray separator?)
+```
+
+In a values file, the key set is a `secretKeyRef`:
+
+```yaml
+WEBHOOK_KEYS: # a key set: one Secret key holding "old,new" while rotating
+  secretKeyRef: {name: orders-webhooks, key: keys}
+```
+
+[`WebhookTests.swift`](Tests/OrdersTests/WebhookTests.swift) walks through a rotation (`swift test`), and
+`smoke.sh` posts webhooks signed with both keys.
+[SPEC section 6.1](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md#61-rotation) covers rotation in
+general.
 
 ## Export the contract
 

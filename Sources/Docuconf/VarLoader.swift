@@ -93,7 +93,7 @@ enum VarLoader {
                 return invalid("is not a number of seconds; durations are read as plain seconds, so write \(secret ? "a number such as 30" : seconds)")
             }
             return invalid("is not a number of seconds, such as 30 or 1.5")
-        case .list:
+        case .list, .keySet:
             // A list given as one string (an environment variable) is split by docuconf, not by
             // swift-configuration, whose array decoder trims whitespace around each item: SPEC §5 says values,
             // csv items included, are never trimmed (" a" is the item " a", and " 1" is not an integer).

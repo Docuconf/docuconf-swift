@@ -53,6 +53,18 @@ contract.#Contract & {
 			max: "5m"
 			default: "30s"
 		}
+		WEBHOOK_KEYS: {
+			type: "keySet"
+			description: "Keys that verify the signature on incoming payment webhooks"
+			details: "A webhook is accepted when it is signed with any key in the set, so the key can be rotated without\nturning webhooks away. Each key is 32 to 256 characters, so an empty or truncated key fails at boot.\nWithout this variable, the service rejects every webhook."
+			secret: true
+			configKey: "webhook.keys"
+			encoding: "csv"
+			minKeys: 1
+			maxKeys: 2
+			keyMinLength: 32
+			keyMaxLength: 256
+		}
 		WORKER_COUNT: {
 			type: "int"
 			description: "Number of background order workers"

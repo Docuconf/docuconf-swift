@@ -129,7 +129,7 @@ import Testing
         #expect(problems(BlankFile.self) == ["notes: details must not be blank"])
     }
 
-    @Test func contractFirstLoadsAndIgnoresDetails() throws {
+    @Test func contractFirstLoadsAndIgnoresDetails() async throws {
         func contract(_ details: JSONValue) -> JSONValue {
             [
                 "apiVersion": "docuconf.dev/v1alpha1", "kind": "ConfigContract", "metadata": ["name": "svc"],
@@ -137,7 +137,7 @@ import Testing
             ]
         }
         let doc = try ContractDocument(contract: contract("Behind the mesh, keep the **default**.\n\n- one\n- two"))
-        #expect(try doc.load(environment: [:])["PORT"] == .int(8080))
+        #expect(try await doc.load(environment: [:])["PORT"] == .int(8080))
         for (details, want) in [
             (JSONValue.string(" \n"), "PORT: details must not be blank"),
             (.string(String(repeating: "日本", count: 2000) + "日"), "PORT: details are 4001 characters"),

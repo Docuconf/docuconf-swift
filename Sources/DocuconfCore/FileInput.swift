@@ -63,13 +63,22 @@ public protocol StructuredDecoding: Sendable {
     func decode<T: Decodable>(_ type: T.Type, from data: Data, format: ConfigFormat) throws -> T
 }
 
-/// JSON only, with Foundation's `JSONDecoder`.
+/// JSON with Foundation's `JSONDecoder`, and TOML with ``TOML``.
 public struct FoundationDecoding: StructuredDecoding {
     public init() {}
 
     public func decode<T: Decodable>(_ type: T.Type, from data: Data, format: ConfigFormat) throws -> T {
-        guard format == .json else { throw ValueConversionError(.fileMalformed, "\(format.rawValue) files need the Docuconf server SDK") }
-        return try JSONSchema.makeJSONDecoder().decode(type, from: data)
+        switch format {
+        case .json: return try JSONSchema.makeJSONDecoder().decode(type, from: data)
+        case .toml: return try Self.decodeTOML(type, from: data)
+        case .yaml: throw ValueConversionError(.fileMalformed, "yaml files need the Docuconf server SDK")
+        }
+    }
+
+    /// Decodes TOML by way of its JSON form. A document that is not TOML throws ``MalformedFileError``.
+    public static func decodeTOML<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+        let doc = try TOML.parse(data)
+        return try JSONSchema.makeJSONDecoder().decode(type, from: Data(doc.jsonText.utf8))
     }
 }
 

@@ -88,12 +88,12 @@ import Testing
         ],
     ]
 
-    @Test func contractFirstChecksTheSchema() throws {
+    @Test func contractFirstChecksTheSchema() async throws {
         let doc = try ContractDocument(contract: Self.contract)
-        #expect(try doc.load(environment: [:])["LIMITS"] == .json(#"{"perMinute":60}"#))
-        #expect(try doc.load(environment: ["LIMITS": #"{"perMinute":5}"#])["LIMITS"] == .json(#"{"perMinute":5}"#))
-        #expect {
-            try doc.load(environment: ["LIMITS": #"{"perMinute":0,"x":1}"#, "SECRET_DOC": #"{"hunter2":"hunter2"}"#])
+        #expect(try await doc.load(environment: [:])["LIMITS"] == .json(#"{"perMinute":60}"#))
+        #expect(try await doc.load(environment: ["LIMITS": #"{"perMinute":5}"#])["LIMITS"] == .json(#"{"perMinute":5}"#))
+        await #expect {
+            try await doc.load(environment: ["LIMITS": #"{"perMinute":0,"x":1}"#, "SECRET_DOC": #"{"hunter2":"hunter2"}"#])
         } throws: { error in
             let e = error as! ConfigurationError
             return e.violations.map { "\($0.input)/\($0.code.rawValue)" }.sorted() == ["LIMITS/schema_mismatch", "SECRET_DOC/schema_mismatch"]

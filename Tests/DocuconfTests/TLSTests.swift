@@ -66,8 +66,9 @@ struct TLSConfig: DocuconfConfig {
         let v = try await sandbox(cert: leaf, key: other.keyPEM, ca: ca).violations(TLSConfig.self)
         #expect(v.map(\.code) == [.keyMismatch])
         #expect(!v[0].message.contains("PRIVATE KEY"))
+        // SPEC §11.2 item 5: a tls.key with no PEM key at all is file_malformed.
         let garbage = try await sandbox(cert: leaf, key: "not a key", ca: ca).violations(TLSConfig.self)
-        #expect(garbage.map(\.code) == [.keyMismatch])
+        #expect(garbage.map(\.code) == [.fileMalformed])
     }
 
     @Test func disallowedKeyAlgorithm() async throws {
@@ -104,6 +105,9 @@ struct TLSConfig: DocuconfConfig {
         try box.write("/etc/svc/tls/tls.crt", "hello")
         try box.write("/etc/svc/tls/tls.key", "hello")
         try box.write("/etc/svc/tls/ca.crt", ca.certificatePEM)
+        // No PEM certificate at all is file_malformed; a PEM certificate that does not parse is certificate_invalid.
+        #expect(await box.violations(TLSConfig.self).map(\.code) == [.fileMalformed])
+        try box.write("/etc/svc/tls/tls.crt", "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n")
         #expect(await box.violations(TLSConfig.self).map(\.code) == [.certificateInvalid])
     }
 

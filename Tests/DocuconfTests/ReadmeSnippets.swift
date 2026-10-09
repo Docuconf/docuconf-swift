@@ -30,6 +30,9 @@ struct ReadmeDetails: DocuconfConfig {
 }
 
 struct ReadmeLengths: DocuconfConfig {
+    // snippet:key-set
+    @Env("webhook.keys", "Keys that verify webhook signatures", .keyLength(32...256)) var webhookKeys: KeySet?
+    // snippet:end
     // snippet:lengths
     @Env("callback.url", "Where to report each run", .schemes("https"), .maxLength(40)) var callback: URL?
     @Env("branches", "Branch codes, two to four characters each", .itemLength(2...4)) var branches: [String] = ["BE"]
@@ -55,10 +58,10 @@ func readmeOverlays() async throws -> OverlaidConfig {
     return config
 }
 
-func readmeContractFirst() throws {
+func readmeContractFirst() async throws {
     // snippet:contract-first
     let contract = try ContractDocument(json: Data(contentsOf: URL(fileURLWithPath: "contract.json")))
-    let values = try contract.load()   // or load(environment: [...]); throws ConfigurationError
+    let values = try await contract.load(support: DocuconfFileSupport())   // or load(environment: [...], support: ...)
     if case .int(let port)? = values["PORT"] { print(port) }
     // snippet:end
 }

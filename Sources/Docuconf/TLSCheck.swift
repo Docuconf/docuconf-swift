@@ -34,9 +34,10 @@ enum TLSCheck {
         let chain: [Certificate]
         switch PEM.certificates(in: certData) {
         case .failure(let problems):
-            return .failure([Violation(.certificateInvalid, name, "tls.crt \(problems[0].message)")])
+            return .failure([Violation(problems[0].code, name, "tls.crt \(problems[0].message)")])
         case .success(let certs):
-            guard !certs.isEmpty else { return .failure([Violation(.certificateInvalid, name, "tls.crt holds no certificate")]) }
+            // SPEC §11.2 item 5: a file with no PEM certificate at all is file_malformed.
+            guard !certs.isEmpty else { return .failure([Violation(.fileMalformed, name, "tls.crt holds no PEM certificate")]) }
             chain = certs
         }
         let leaf = chain[0]
@@ -46,8 +47,10 @@ enum TLSCheck {
             if key.publicKey != leaf.publicKey {
                 violations.append(Violation(.keyMismatch, name, "tls.key is not the private key for the certificate in tls.crt"))
             }
+        } else if let keyText = String(data: keyData, encoding: .utf8), (try? PEMDocument.parseMultiple(pemString: keyText))?.isEmpty == false {
+            violations.append(Violation(.keyMismatch, name, "tls.key is not a PEM private key this SDK can read (PKCS#8, SEC1 or PKCS#1)"))
         } else {
-            violations.append(Violation(.keyMismatch, name, "tls.key is not a PEM private key (PKCS#8, SEC1 or PKCS#1)"))
+            violations.append(Violation(.fileMalformed, name, "tls.key holds no PEM private key"))
         }
 
         // Validity, and enough of it left.
@@ -89,9 +92,9 @@ enum TLSCheck {
         if spec.requireCA, timeValid, let caData = files["ca.crt"] {
             switch PEM.certificates(in: caData) {
             case .failure(let problems):
-                violations.append(Violation(.certificateInvalid, name, "ca.crt \(problems[0].message)"))
+                violations.append(Violation(problems[0].code, name, "ca.crt \(problems[0].message)"))
             case .success(let roots) where roots.isEmpty:
-                violations.append(Violation(.certificateInvalid, name, "ca.crt holds no certificate"))
+                violations.append(Violation(.fileMalformed, name, "ca.crt holds no PEM certificate"))
             case .success(let roots):
                 var verifier = Verifier(rootCertificates: CertificateStore(roots)) {
                     RFC5280Policy()  // validates expiry against the system clock

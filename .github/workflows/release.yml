@@ -33,6 +33,9 @@ jobs:
           go-version: stable
           cache: false
       - run: go install cuelang.org/go/cmd/cue@v0.17.1 && echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Install the docuconf CLI
+        working-directory: docuconf-go/cmd/docuconf
+        run: go install .
 
       - name: Check the tag matches DocuconfSDK.version
         run: |
@@ -49,6 +52,7 @@ jobs:
           # The shared conformance suite (SPEC §12), run through contract-first mode.
           DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
           DOCUCONF_REQUIRE_CONFORMANCE: "1"
+          DOCUCONF_REQUIRE_EXPORT: "1"
 
   release:
     needs: test

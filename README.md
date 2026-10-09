@@ -333,12 +333,16 @@ integration is a handful of lines, and a module would make every docuconf user r
 | `[String]`, `[Int]` | `list` | `.items(1...5)`, `.minItems`, `.maxItems` |
 | `[String]` | `list` of `string` | as above, plus `.itemLength(2...4)`, `.itemMinLength`, `.itemMaxLength` |
 | `[Int32]`, `[UInt16]`, any fixed-width integer list | `list` of `int` | as above, plus `.itemRange(0...1023)`, `.itemMin`, `.itemMax` |
+| `KeySet` | `keySet` (always secret) | `.keys(1...2)`, `.minKeys`, `.maxKeys`, `.keyLength(32...256)`, `.keyMinLength`, `.keyMaxLength`, `.separator` |
 | a `JSONConfigValue` (`Codable` struct) | `json` | JSON Schema derived from the type; `.maxLength` |
 
 `Float` is not supported (declare `Double`); the compiler says so.
 
 Every variable also takes `.secret`, `.group("database")`, `.examples("eu-west-1")` and
-`.deprecated("Use REQUEST_TIMEOUT", replacedBy: "REQUEST_TIMEOUT")`. The description may be labelled:
+`.deprecated("Use REQUEST_TIMEOUT", replacedBy: "REQUEST_TIMEOUT")` (the message is not blank and at most 500
+characters, and a required input cannot be deprecated; when a deprecated input is set, boot warns with its name and the
+message, never the value). Lists and key sets take `.separator(";")` for their `csv` separator. The description may
+be labelled:
 `@Env("http.port", description: "HTTP listen port") var port = 8080`. The rules a type accepts are checked by the
 compiler: `.schemes` on an `Int` does not build.
 
@@ -402,6 +406,21 @@ its length, never its value:
 @Env("branches", "Branch codes, two to four characters each", .itemLength(2...4)) var branches: [String] = ["BE"]
 ```
 
+**Key sets.** A `KeySet` is a set of secret keys that are all valid at once, so a key can be rotated without
+downtime ([spec section 6.1](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md#61-rotation)): the
+platform sets `old,new` during the overlap. It is always secret, holds 1 to 2 keys unless `.keys` says otherwise, and
+never trims a key; an empty key (a stray separator) is always `out_of_range`, and the number of keys `too_few_items`
+or `too_many_items`. No message, `print` or `dump` shows a key:
+
+<!-- snippet: Tests/DocuconfTests/ReadmeSnippets.swift#key-set -->
+```swift
+@Env("webhook.keys", "Keys that verify webhook signatures", .keyLength(32...256)) var webhookKeys: KeySet?
+```
+
+`keys` gives them in order; `contains(_:)` checks a presented API key in constant time, and `verify(_:)` runs a check
+of yours, such as an HMAC comparison, against every key without stopping at the first match. The
+[orders example](Examples/Orders#rotate-a-key) verifies webhook signatures with it.
+
 **Declaration checks.** The declaration itself is checked before any value is read (`DeclarationError`): names,
 descriptions of at least 5 characters, defaults that break their own constraints, secrets with defaults or examples,
 patterns outside RE2 (lookaround, backreferences, possessive quantifiers), mount directories that clash or hide system
@@ -423,9 +442,14 @@ same text; a provider with typed values (a JSON or YAML config file) is read wit
   `EnvironmentVariablesProvider`'s array decoder trims whitespace around items and SPEC §5 forbids that: `" a,b"`
   is `[" a", "b"]`, and `"80, 443"` for a list of integers is `invalid_type`. A provider with real arrays (a JSON
   or YAML config file) is read with `stringArray`/`intArray`.
-- **Booleans** accept `true`/`false` in any case, nothing else: `yes`, `no`, `1` and `0`, which swift-configuration
-  reads as bools, are `invalid_type`, as in contract-first mode. **Integers** are base-10 with an optional sign
-  (`+5`, `007`); **floats** are decimal (`1e3`, `.5`), never hexadecimal (`0x1p3`), `NaN` or infinite.
+- **Strict parsing** (SPEC §5), the same in both modes, whatever swift-configuration would accept:
+  **booleans** are `true`/`false` in any case, nothing else (`yes`, `no`, `1`, `0`, `t`, `on` are `invalid_type`);
+  **integers** match `^[+-]?[0-9]+$` and read as base 10 (`+5`, `007` is 7), never `0x10`, `1_000` or `1e3`;
+  **floats** match `^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$` (`1e3`, `0.5`), never `.5`, `5.`, hexadecimal
+  (`0x1p3`), `NaN`, infinite or too large for a double (`1e400`), whatever the locale; **durations** follow their
+  encoding's grammar exactly (`seconds`: `^[0-9]+(\.[0-9]+)?$`; in contract-first mode also Go's
+  `time.ParseDuration`, ISO 8601 `P[nD][T[nH][nM][nS]]` and .NET `[d.]hh:mm:ss[.f]`). Nothing is trimmed, csv
+  items included: `" true"` and `"5\n"` are `invalid_type`.
 - On top of the host, docuconf treats an empty string as unset for every type except `string` (SPEC §5), reports an
   integer (or integer list item) beyond the 64-bit range as `out_of_range` rather than `invalid_type`, rejects
   `NaN` and infinity, and never trims values. It warns when a secret ends in a newline (a Secret made with
@@ -454,10 +478,10 @@ The property-wrapper storage shows as `_port`. They never show the declaration's
 
 | Property type | Contract `type` | Checked at boot | Rules |
 |---|---|---|---|
-| `ConfigFile<T: Decodable>` | `config` | parses as JSON or YAML (by extension, or `.format(.yaml)`) and decodes into `T` | schema from `T` |
-| `TLSKeyPair` (TLS trait) | `tls` | `tls.crt` and `tls.key` parse and match, validity, `minRemaining`, DNS names (one-label wildcards), key algorithm, chain to `ca.crt` | `.dnsNames`, `.keyAlgorithms`, `.minRemaining`, `.requireCA` |
+| `ConfigFile<T: Decodable>` | `config` | parses as JSON, YAML or TOML (by extension, or `.format(.yaml)`) and decodes into `T` | schema from `T` |
+| `TLSKeyPair` (TLS trait) | `tls` | `tls.crt` and `tls.key` parse and match, validity, `minRemaining`, DNS names (one-label wildcards), key algorithm, chain to `ca.crt`; a file with no PEM certificate or key is `file_malformed`, a PEM certificate that does not parse `certificate_invalid` | `.dnsNames`, `.keyAlgorithms`, `.minRemaining`, `.requireCA` |
 | `CABundle` (TLS trait) | `caBundle` | at least `minCertificates` parseable certificates | `.minCertificates(2)` |
-| `Keystore` (TLS trait) | `keystore` | PKCS#12 MAC or JKS digest verifies with the password variable | `.format(.jks)`, `.passwordVar("KEYSTORE_PASSWORD")` |
+| `Keystore` (TLS trait) | `keystore` | PKCS#12 MAC (SHA-1 or SHA-2, so AES-256 keystores too) or JKS digest verifies with the password variable (an empty password when it is unset); the bags are not decrypted | `.format(.jks)`, `.passwordVar("KEYSTORE_PASSWORD")` |
 | `TextFile` | `text` | UTF-8, length and pattern | `.pattern`, `.length`, `.minLength`, `.maxLength` |
 | `BinaryFile` | `binary` | size | |
 
@@ -568,7 +592,7 @@ environment provider and before your file providers. `Docuconf.load(_:from:)` re
 has.
 
 - **Format**: JSON or YAML, read with swift-configuration's `JSONSnapshot` and `YAMLSnapshot`. The format comes from
-  the extension, or pass `format:`. TOML is not supported.
+  the extension, or pass `format:`. TOML overlays are not supported in declaration mode.
 - **Keys**: the platform writes each value at its variable's swift-configuration key, split on `.`:
   `http.port` becomes `{"http": {"port": 8443}}`. The contract declares `keySeparator: "."`, and every variable gets
   a `configKey`, even when the key is already the variable name. The exception is `json` variables: a file
@@ -631,52 +655,87 @@ can reuse the parts that matter:
 
 ## Contract-first mode
 
-`ContractDocument` (in `DocuconfCore`) validates an environment against a contract given as JSON, with no Swift
-declaration: for a hand-written `contract.cue` exported with `cue export contract.cue --out json`, or for tooling.
-It parses every wire encoding in SPEC §5, whatever the contract records: lists as `csv` (with its `separator`),
-`json` or `indexed` (`NAME__0`, `NAME__1`, ...), durations as `go`, `iso8601`, `seconds` or `timespan`. The checks
-are the ones `Docuconf.load` runs on a declaration, and every violation is reported together.
+`ContractDocument` (in `DocuconfCore`) validates an environment, and the files it points at, against a contract
+given as JSON, with no Swift declaration: for a hand-written `contract.cue` exported with
+`cue export contract.cue --out json`, or for tooling. It parses every wire encoding in SPEC §5, whatever the contract
+records: lists and key sets as `csv` (with its `separator`), `json` or `indexed` (`NAME__0`, `NAME__1`, ...),
+durations as `go`, `iso8601`, `seconds` or `timespan`. The checks are the ones `Docuconf.load` runs on a
+declaration, and every violation is reported together.
 
 <!-- snippet: Tests/DocuconfTests/ReadmeSnippets.swift#contract-first -->
 ```swift
 let contract = try ContractDocument(json: Data(contentsOf: URL(fileURLWithPath: "contract.json")))
-let values = try contract.load()   // or load(environment: [...]); throws ConfigurationError
+let values = try await contract.load(support: DocuconfFileSupport())   // or load(environment: [...], support: ...)
 if case .int(let port)? = values["PORT"] { print(port) }
 ```
 
-Values are `ParsedValue`s (`values.json` gives them all as JSON, durations in canonical Go form). Unset optional
-variables take their contract default, or are absent. A `json` variable must be valid JSON and match its `schema`,
-or it is `schema_mismatch`. The validator (`JSONSchemaValidator`, no dependency) enforces the keywords docuconf
-contracts use: `type`, `enum`, `const`, `properties`, `required`, `additionalProperties`, `minProperties`,
-`maxProperties`, `items`, `minItems`, `maxItems`, `uniqueItems`, `minimum`, `maximum`, `exclusiveMinimum`,
-`exclusiveMaximum`, `multipleOf`, `minLength` and `maxLength` (in Unicode scalars), `pattern` (RE2), `anyOf`,
-`oneOf`, `allOf` and `not`; annotations such as `title`, `description` and `format` are ignored. A schema with any
-other keyword (`$ref`, `patternProperties`, ...) is a `DeclarationError`, not a check silently skipped. Declared
-`JSONConfigValue` variables are still checked by decoding into the Swift type. File inputs and overlays in the
-contract are ignored.
+Values are `ParsedValue`s, file inputs `ContractFileValue`s (`values.json` gives them all as JSON, durations in
+canonical Go form). Unset optional variables take their contract default, or are absent. The contract's whole
+surface is loaded:
+
+- **Layers**, in the order SPEC §4.4 and §4.7 fix: a variable's `default`, then the selected profile's default
+  (`profiles.selector` from the environment, else `profiles.default`; names are case-sensitive), then a config-file
+  overlay (JSON, YAML or TOML, read at the variable's `configKey` split on the overlay's `keySeparator`, native values
+  converted to their wire string and checked like env values), then the environment. A profile or overlay value
+  satisfies a required variable. A missing overlay is not an error; one that does not parse, or is not an object, is
+  `file_malformed` for the overlay.
+- **File inputs**, under `DOCUCONF_FILE_ROOT` when the environment sets it: `config` files in `json`, `yaml` or
+  `toml`, checked against their JSON Schema (a config file's value is its data); `text` files against their
+  constraints; `tls` key pairs, `caBundle`s and PKCS#12 or JKS `keystore`s with the checks the declaration path runs;
+  `binary` files for presence and `maxSize`.
+- **Warnings** go to `warn:`: a deprecated input that is set (its name and message, never the value), and a variable
+  set both in the environment and in an overlay.
+
+`load` is `async`. `support` parses YAML and runs the certificate and keystore checks: pass the server SDK's
+`DocuconfFileSupport()` (certificates and keystores need the `TLS` trait). The default, `FoundationFileSupport()`,
+keeps `DocuconfCore` Foundation-only: it reads JSON and TOML (with the built-in `TOML` reader) and reports YAML files
+and certificate inputs as problems instead of skipping them.
+
+A `json` variable must be valid JSON and match its `schema`, or it is `schema_mismatch`, and so must a config file.
+The validator (`JSONSchemaValidator`, no dependency) enforces the keywords docuconf contracts use: `type`, `enum`,
+`const`, `properties`, `required`, `additionalProperties`, `minProperties`, `maxProperties`, `items`, `minItems`,
+`maxItems`, `uniqueItems`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `minLength`
+and `maxLength` (in Unicode scalars), `pattern` (RE2), `anyOf`, `oneOf`, `allOf` and `not`; annotations such as
+`title`, `description` and `format` are ignored. A schema with any other keyword (`$ref`, `patternProperties`, ...)
+is a `DeclarationError`, not a check silently skipped. Declared `JSONConfigValue` variables are still checked by
+decoding into the Swift type.
 
 ## Conformance
 
 The test suite runs the shared conformance suite (SPEC §12) from docuconf-go through contract-first mode
-(`Tests/DocuconfCoreTests/ConformanceTests.swift`). It reads `cases.json` from `DOCUCONF_CONFORMANCE`, or from a
-`docuconf-go` checkout next to this repository, and is skipped when neither exists unless
-`DOCUCONF_REQUIRE_CONFORMANCE=1` (as in CI):
+(`Tests/DocuconfTests/ConformanceTests.swift`). For each case it writes the case's files into a fresh temporary
+directory and loads with the case's environment plus `DOCUCONF_FILE_ROOT` set to it. It reads `cases.json` from
+`DOCUCONF_CONFORMANCE`, or from a `docuconf-go` checkout next to this repository, and is skipped when neither exists
+unless `DOCUCONF_REQUIRE_CONFORMANCE=1` (as in CI):
 
 ```sh
 DOCUCONF_CONFORMANCE=../docuconf-go/conformance/cases.json DOCUCONF_REQUIRE_CONFORMANCE=1 \
-  swift test --filter ConformanceTests
+  swift test --traits TLS --filter ConformanceTests
 ```
 
 A failing case is reported by its `id` (`int/below min`), which points at its YAML source in
-`conformance/load/`. Capability tags this SDK skips: none. `json-schema` is supported by contract-first mode's
-validator, and `int64` because `Int` is 64 bits on the platforms the suite runs on (Linux and macOS). With
-`DOCUCONF_REQUIRE_CONFORMANCE=1`, as in CI, a skipped case fails the suite.
+`conformance/load/`. **Capability tags: none are skipped.** The runner keeps an allow-list of the tags it supports,
+`int64`, `json-schema`, `key-set`, `deprecated`, `strict-parsing`, `files`, `profiles` and `overlays`, and skips a
+case with any other tag, so a tag added to the suite later never runs against an SDK that predates it. `files`
+needs the `TLS` trait (for the certificate and keystore cases); a build without it skips those cases, which is why
+CI runs the suite with `--traits TLS`. With `DOCUCONF_REQUIRE_CONFORMANCE=1`, as in CI, any skipped case fails the
+suite. `int64` holds because `Int` is 64 bits on the platforms the suite runs on (Linux and macOS).
+
+**Export.** `Tests/DocuconfCoreTests/SharedExportTests.swift` declares the shared export fixture
+(`conformance/export/fixture.yaml`) in Swift, exports it, and runs
+`docuconf conformance export --golden conformance/export/golden.cue exported.cue`, which compares the two as data.
+It finds the CLI through `DOCUCONF_CLI`, `~/go/bin` or `PATH`, and the golden file through `DOCUCONF_EXPORT_GOLDEN` or
+next to `DOCUCONF_CONFORMANCE`; with `DOCUCONF_REQUIRE_EXPORT=1`, as in CI, a missing one fails the test. The SDK's
+own golden contract (`Tests/DocuconfCoreTests/Golden/gateway.cue`) stays: it also covers what the shared fixture does
+not, such as details taken from DocC text and narrow integer types.
 
 ## Not supported yet
 
-- Profiles (SPEC §4.4): swift-configuration has no profile convention, so baked-in config files are not exported as
-  `profiles`. If you layer a JSON file provider under the environment, its values are not in the contract.
-- TOML config files (no TOML decoder in the dependency set).
+- Profiles in declaration mode (SPEC §4.4): swift-configuration has no profile convention, so baked-in config files
+  are not exported as `profiles`. If you layer a JSON file provider under the environment, its values are not in the
+  contract. Contract-first mode reads `profiles` from a contract.
+- TOML overlays in declaration mode: swift-configuration has no TOML snapshot. TOML config file inputs work in both
+  modes, and contract-first mode reads TOML overlays.
 - Reloading config-file overlays (`reload: watch`): variables are read once, at boot.
 - Reading `contract.cue` itself in contract-first mode: export it to JSON with `cue export` first.
 - Markdown docs generated from the declaration (a SHOULD in the spec).

@@ -2,7 +2,7 @@ import Foundation
 
 /// Variable types (SPEC §4.3). The set is closed in v1alpha1.
 public enum VarType: String, Sendable, CaseIterable {
-    case string, int, float, bool, duration, url, `enum`, list, json
+    case string, int, float, bool, duration, url, `enum`, list, keySet, json
 }
 
 /// How a `duration` value is written in the environment (SPEC §5).
@@ -108,6 +108,12 @@ public struct VarSpec: Sendable {
     /// scalars, checked after the list is split.
     public var itemMinLength: Int?
     public var itemMaxLength: Int?
+    // keySet: the number of keys (`minKeys`, default 1; `maxKeys`, default 2) and the length of each key, in
+    // Unicode scalars. A key set travels in a list's encodings (``listWire``, ``separator``).
+    public var minKeys: Int?
+    public var maxKeys: Int?
+    public var keyMinLength: Int?
+    public var keyMaxLength: Int?
     // json
     public var schema: JSONValue?
 
@@ -118,6 +124,11 @@ public struct VarSpec: Sendable {
     public var listWire: ListEncoding = .csv
     /// The `csv` separator.
     public var separator = ","
+
+    /// The fewest keys a `keySet` holds: `minKeys`, or its default 1.
+    public var effectiveMinKeys: Int { minKeys ?? 1 }
+    /// The most keys a `keySet` holds: `maxKeys`, or its default 2.
+    public var effectiveMaxKeys: Int { maxKeys ?? 2 }
 
     /// The default as contract data, if any.
     public var defaultValue: JSONValue?
