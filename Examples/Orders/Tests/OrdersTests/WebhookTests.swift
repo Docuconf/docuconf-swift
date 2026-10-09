@@ -29,10 +29,21 @@ func rotation(step: String, keys: String, accepts: [String: Bool]) async throws 
 }
 
 @Test func malformedOrMissing() async throws {
-    #expect(!Webhook.verify(keys: [oldKey], body: body, signature: "not hex"))
-    #expect(!Webhook.verify(keys: [oldKey], body: body, signature: ""))
-    #expect(!Webhook.verify(keys: [], body: body, signature: Webhook.sign(key: oldKey, body: body)))
+    #expect(!Webhook.verify(keys: KeySet([oldKey]), body: body, signature: "not hex"))
+    #expect(!Webhook.verify(keys: KeySet([oldKey]), body: body, signature: ""))
+    #expect(!Webhook.verify(keys: KeySet([]), body: body, signature: Webhook.sign(key: oldKey, body: body)))
     #expect(try await load("").webhookKeys == nil)
+}
+
+/// A key set is always secret: printing the configuration never shows a key.
+@Test func keysAreRedacted() async throws {
+    let config = try await load("\(oldKey),\(newKey)")
+    let keys = try #require(config.webhookKeys)
+    #expect(keys.keys == [oldKey, newKey])
+    #expect(keys.contains(newKey))
+    for text in [String(describing: config), "\(keys)", String(reflecting: keys)] {
+        #expect(!text.contains(oldKey) && !text.contains(newKey), "\(text)")
+    }
 }
 
 /// The key set's constraints catch an empty or truncated key, and a third key, at boot, without printing any key.

@@ -39,7 +39,7 @@ extension VarSpec {
     /// Returns the raw value (the first item for an `indexed` list), used for the injector-reference check, and the
     /// parse result: `nil` for an unset value, as an empty string is for every type but `string`.
     public func parse(environment env: [String: String]) -> (raw: String?, parsed: Result<ParsedValue, Violation>?) {
-        guard type == .list, listWire == .indexed else {
+        guard type == .list || type == .keySet, listWire == .indexed else {
             let raw = env[name]
             return (raw, raw.flatMap { parse(wire: $0) })
         }
@@ -83,11 +83,8 @@ extension VarSpec {
             guard let d = Self.parseDouble(wire) else { return .failure(invalid("is not a finite decimal number", wire)) }
             return .success(.double(d))
         case .bool:
-            switch wire.lowercased() {
-            case "true": return .success(.bool(true))
-            case "false": return .success(.bool(false))
-            default: return .failure(invalid("is not true or false", wire))
-            }
+            guard let b = Self.parseBool(wire) else { return .failure(invalid("is not true or false", wire)) }
+            return .success(.bool(b))
         case .duration:
             guard let d = durationWire.parse(wire) else {
                 return .failure(invalid("is not a duration in the \(durationWire.rawValue) encoding", wire))
@@ -97,7 +94,7 @@ extension VarSpec {
             return .success(.url(wire))
         case .enum:
             return .success(.enumCase(wire))
-        case .list:
+        case .list, .keySet:
             switch listWire {
             case .csv, .indexed:
                 return parseItems(wire.components(separatedBy: separator.isEmpty ? "," : separator), raw: wire)
@@ -118,8 +115,9 @@ extension VarSpec {
                     return .success(.intList(ints))
                 }
                 var strings: [String] = []
+                let what = type == .keySet ? "key" : "item"
                 for (n, e) in elements.enumerated() {
-                    guard case .string(let s) = e else { return .failure(invalid("item \(n) is not a string", wire)) }
+                    guard case .string(let s) = e else { return .failure(invalid("\(what) \(n) is not a string", wire)) }
                     strings.append(s)
                 }
                 return .success(.stringList(strings))
@@ -172,20 +170,40 @@ extension VarSpec {
         }
     }
 
-    /// A decimal number, independent of the locale. `NaN`, infinities and hexadecimal floats are rejected.
-    static func parseDouble(_ s: String) -> Double? {
-        var rest = Substring(s)
-        if rest.first == "-" || rest.first == "+" { rest = rest.dropFirst() }
-        let mantissa = rest.prefix { ($0.isASCII && $0.isNumber) || $0 == "." }
-        guard mantissa.contains(where: \.isNumber), mantissa.filter({ $0 == "." }).count <= 1 else { return nil }
-        rest = rest.dropFirst(mantissa.count)
-        if let e = rest.first, e == "e" || e == "E" {
-            rest = rest.dropFirst()
-            if rest.first == "-" || rest.first == "+" { rest = rest.dropFirst() }
-            guard !rest.isEmpty, rest.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
-            rest = ""
+    /// `true` or `false` in any combination of upper and lower case, and nothing else (SPEC §5): not `1`, `t`,
+    /// `yes` or `on`, and never trimmed.
+    public static func parseBool(_ s: String) -> Bool? {
+        let lower = String(decoding: s.utf8.map { (0x41...0x5A).contains($0) ? $0 + 0x20 : $0 }, as: UTF8.self)
+        switch lower {
+        case "true": return true
+        case "false": return false
+        default: return nil
         }
-        guard rest.isEmpty, let d = Double(s), d.isFinite else { return nil }
+    }
+
+    /// A decimal number, independent of the locale: exactly `^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$` (SPEC §5),
+    /// rounded to the nearest double. `.5`, `5.`, hexadecimal floats, `inf`, `NaN`, underscores and values too
+    /// large for a double are rejected.
+    public static func parseDouble(_ s: String) -> Double? {
+        let b = Array(s.utf8)
+        var i = 0
+        func digits() -> Bool {
+            let start = i
+            while i < b.count, (0x30...0x39).contains(b[i]) { i += 1 }
+            return i > start
+        }
+        if i < b.count, b[i] == UInt8(ascii: "+") || b[i] == UInt8(ascii: "-") { i += 1 }
+        guard digits() else { return nil }
+        if i < b.count, b[i] == UInt8(ascii: ".") {
+            i += 1
+            guard digits() else { return nil }
+        }
+        if i < b.count, b[i] == UInt8(ascii: "e") || b[i] == UInt8(ascii: "E") {
+            i += 1
+            if i < b.count, b[i] == UInt8(ascii: "+") || b[i] == UInt8(ascii: "-") { i += 1 }
+            guard digits() else { return nil }
+        }
+        guard i == b.count, let d = Double(s), d.isFinite else { return nil }
         return d
     }
 
@@ -243,8 +261,8 @@ extension VarSpec {
         case .bool:
             break
         case .duration(let d):
-            let shownValue = shown(GoDuration.format(Swift.max(d, .zero)))
-            if d < .zero { add(.outOfRange, "is negative") }
+            // A `go` duration may be negative (SPEC §5); only the declared bounds limit it.
+            let shownValue = shown(d < .zero ? "-" + GoDuration.format(.zero - d) : GoDuration.format(d))
             if let minDuration, d < minDuration {
                 add(.outOfRange, "is below min \(GoDuration.format(minDuration))" + shownValue)
             }
@@ -265,6 +283,8 @@ extension VarSpec {
             if let values, !values.contains(s) {
                 add(.notInEnum, "is not one of \(values.joined(separator: ", "))" + shown(s))
             }
+        case .stringList(let l) where type == .keySet:
+            out += checkKeys(l)
         case .stringList(let l):
             out += checkCount(l.count)
             // Each item after splitting, in Unicode scalars; one violation for the first item out of bounds.
@@ -288,6 +308,35 @@ extension VarSpec {
             // The wire string: the raw value as received at boot, the compact JSON for a default (SPEC §4.3).
             if let maxLength, text.unicodeScalars.count > maxLength {
                 add(.outOfRange, "is \(text.unicodeScalars.count) characters of JSON, longer than \(maxLength)")
+            }
+        }
+        return out
+    }
+
+    /// A key set's rules (SPEC §4.3): `minKeys`..`maxKeys` keys, and every key non-empty and within
+    /// `keyMinLength`..`keyMaxLength` characters. Messages give positions and lengths, never a key.
+    private func checkKeys(_ keys: [String]) -> [Violation] {
+        var out: [Violation] = []
+        let n = keys.count
+        if n < effectiveMinKeys {
+            out.append(Violation(.tooFewItems, name, "has \(n) key\(n == 1 ? "" : "s"); at least \(effectiveMinKeys) required"))
+        }
+        if n > effectiveMaxKeys {
+            out.append(Violation(.tooManyItems, name, "has \(n) keys; at most \(effectiveMaxKeys) allowed"))
+        }
+        for (i, key) in keys.enumerated() {
+            let length = key.unicodeScalars.count
+            if length == 0 {
+                out.append(Violation(.outOfRange, name, "key \(i) is empty (a stray separator?)"))
+                break
+            }
+            if let keyMinLength, length < keyMinLength {
+                out.append(Violation(.outOfRange, name, "key \(i) is \(length) characters, shorter than \(keyMinLength)"))
+                break
+            }
+            if let keyMaxLength, length > keyMaxLength {
+                out.append(Violation(.outOfRange, name, "key \(i) is \(length) characters, longer than \(keyMaxLength)"))
+                break
             }
         }
         return out

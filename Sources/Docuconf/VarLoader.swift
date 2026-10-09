@@ -4,10 +4,10 @@ import Foundation
 
 /// Reads variables through swift-configuration and checks them against the declaration.
 ///
-/// swift-configuration does the parsing (`int`, `double`, `bool`, `stringArray`, `intArray`), so values
-/// mean what they mean to any other `ConfigReader` user. docuconf adds what the spec requires on top: an
-/// empty string is unset for every type but `string` (SPEC §5), NaN and infinity are rejected, and the
-/// declared constraints are checked.
+/// A value swift-configuration has as one string (an environment variable) is parsed with the SPEC §5 rules that
+/// contract-first mode uses (``VarSpec/parse(wire:)``), so both paths accept exactly the same text; typed values
+/// from other providers come through the reader's typed accessors. An empty string is unset for every type but
+/// `string`, and the declared constraints are checked.
 enum VarLoader {
     static func load(_ input: any AnyEnv, reader: ConfigReader, options: LoadOptions, rawSecrets: inout [String: String]) -> [Violation] {
         let spec = input.spec
@@ -63,29 +63,29 @@ enum VarLoader {
             return raw.map { .success(.enumCase($0)) }
         case .json:
             return raw.map { .success(.json($0)) }
+        // A value given as one string (an environment variable, a .env file) is parsed by docuconf with the
+        // rules contract-first mode uses (SPEC §5), not by swift-configuration, which reads more than the spec
+        // allows: `yes`/`no`/`1`/`0` as bools, hexadecimal floats. A provider with typed values (a JSON or YAML
+        // config file) is read through the reader's typed accessors.
         case .int:
-            if let i = reader.int(forKey: key, isSecret: secret) { return .success(.int(i)) }
-            guard let raw else { return nil }
-            // An integer beyond 64 bits is out_of_range, not invalid_type (SPEC §5).
-            if case .failure(.outOfRange) = VarSpec.parseInt(raw) { return .failure(spec.intViolation(.outOfRange, raw)) }
-            return invalid("is not a base-10 integer")
+            if let raw { return spec.parse(wire: raw) }
+            return reader.int(forKey: key, isSecret: secret).map { .success(.int($0)) }
         case .float:
-            if let d = reader.double(forKey: key, isSecret: secret) {
-                return d.isFinite ? .success(.double(d)) : invalid("is not a finite number")
-            }
-            return raw == nil ? nil : invalid("is not a number")
+            if let raw { return spec.parse(wire: raw) }
+            guard let d = reader.double(forKey: key, isSecret: secret) else { return nil }
+            return d.isFinite ? .success(.double(d)) : invalid("is not a finite number")
         case .bool:
-            if let b = reader.bool(forKey: key, isSecret: secret) { return .success(.bool(b)) }
-            return raw == nil ? nil : invalid("is not true or false")
+            if let raw { return spec.parse(wire: raw) }
+            return reader.bool(forKey: key, isSecret: secret).map { .success(.bool($0)) }
         case .duration:
-            // Encoding "seconds": a number of seconds, read as a Double. Overlays hold it as a number (90, 1.5);
-            // a string of seconds ("90", as earlier renderers wrote) is parsed too, since JSONSnapshot will not
-            // convert a string to a number.
-            if let d = reader.double(forKey: key, isSecret: secret) ?? raw.flatMap(Double.init) {
+            // Encoding "seconds": a number of seconds (`90`, `1.5`). Overlays may hold it as a JSON number.
+            guard let raw else {
+                guard let d = reader.double(forKey: key, isSecret: secret) else { return nil }
                 guard d.isFinite, d >= 0, d < 9.2e9 else { return invalid("is not a non-negative number of seconds") }
                 return .success(.duration(.milliseconds(Int64((d * 1000).rounded()))))
             }
-            guard let raw else { return nil }
+            let parsed = spec.parse(wire: raw)
+            guard case .failure? = parsed else { return parsed }
             // A Go-style duration (`30s`, `1m30s`) is what the contract and docs show; say what to write instead.
             if let d = GoDuration.parse(raw) {
                 let x = Double(GoDuration.nanoseconds(d)) / 1e9
@@ -93,17 +93,16 @@ enum VarLoader {
                 return invalid("is not a number of seconds; durations are read as plain seconds, so write \(secret ? "a number such as 30" : seconds)")
             }
             return invalid("is not a number of seconds, such as 30 or 1.5")
-        case .list:
+        case .list, .keySet:
+            // A list given as one string (an environment variable) is split by docuconf, not by
+            // swift-configuration, whose array decoder trims whitespace around each item: SPEC §5 says values,
+            // csv items included, are never trimmed (" a" is the item " a", and " 1" is not an integer).
+            if let raw { return spec.parse(wire: raw) }
+            // A provider with real arrays (a JSON or YAML config file) needs no splitting.
             if spec.items == .int {
-                if let l = reader.intArray(forKey: key, isSecret: secret) { return .success(.intList(l)) }
-                guard let raw else { return nil }
-                // Integers that only fail for being beyond 64 bits are out_of_range (SPEC §5).
-                let items = raw.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
-                if case .failure(let v) = spec.parseItems(items, raw: raw), v.code == .outOfRange { return .failure(v) }
-                return invalid("is not a comma-separated list of integers")
+                return reader.intArray(forKey: key, isSecret: secret).map { .success(.intList($0)) }
             }
-            if let l = reader.stringArray(forKey: key, isSecret: secret) { return .success(.stringList(l)) }
-            return raw == nil ? nil : invalid("is not a comma-separated list")
+            return reader.stringArray(forKey: key, isSecret: secret).map { .success(.stringList($0)) }
         }
     }
 

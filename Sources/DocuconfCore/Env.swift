@@ -199,6 +199,9 @@ extension VarRule where Base: EnvBaseValue & RangeReplaceableCollection, Base.El
 }
 
 extension VarRule where Base: EnvBaseValue & RangeReplaceableCollection, Base.Element: ListItem {
+    /// The `csv` separator (`,` by default). docuconf splits the value itself, on every occurrence, and never
+    /// trims an item (SPEC §5).
+    public static func separator(_ s: String) -> Self { Self { $0.separator = s } }
     public static func items(_ r: ClosedRange<Int>) -> Self { Self { $0.minItems = r.lowerBound; $0.maxItems = r.upperBound } }
     public static func minItems(_ n: Int) -> Self { Self { $0.minItems = n } }
     public static func maxItems(_ n: Int) -> Self { Self { $0.maxItems = n } }

@@ -34,8 +34,11 @@ struct TrustConfig: DocuconfConfig {
         let v = await box.violations(TrustConfig.self)
         #expect(v.map(\.code) == [.fileMalformed])
         #expect(v[0].message.contains("holds 1 certificate; at least 2 required"))
-        try box.write("/etc/svc/ca/bundle.pem", "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n")
+        try box.write("/etc/svc/ca/bundle.pem", "no PEM here\n")
         #expect(await box.violations(TrustConfig.self).map(\.code) == [.fileMalformed])
+        // A PEM certificate that does not parse is certificate_invalid (SPEC §11.2 item 5).
+        try box.write("/etc/svc/ca/bundle.pem", "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n")
+        #expect(await box.violations(TrustConfig.self).map(\.code) == [.certificateInvalid])
     }
 
     @Test func keystorePasswords() async throws {

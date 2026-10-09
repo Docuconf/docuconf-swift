@@ -64,7 +64,12 @@ public struct Declaration: Sendable {
         return parent.isEmpty ? "/" : parent
     }
 
-    package static func validate(vars: [VarSpec], files: [FileSpec], overlays: [ConfigOverlay] = []) -> (problems: [String], warnings: [String]) {
+    /// - Parameter contractFirst: The inputs come from a contract read in contract-first mode, not a Swift
+    ///   declaration, so the limits of swift-configuration (TOML and `watch` overlays, the `.` key separator) do
+    ///   not apply.
+    package static func validate(
+        vars: [VarSpec], files: [FileSpec], overlays: [ConfigOverlay] = [], contractFirst: Bool = false
+    ) -> (problems: [String], warnings: [String]) {
         var problems: [String] = []
         var warnings: [String] = []
         var seen: [String: String] = [:]
@@ -118,6 +123,7 @@ public struct Declaration: Sendable {
             if let a = v.minDuration, let b = v.maxDuration, a > b { problems.append("\(n): min duration is above max") }
             if v.type == .enum, v.values?.isEmpty ?? true { problems.append("\(n): an enum needs at least one case") }
             if v.schemes?.isEmpty == true { problems.append("\(n): schemes cannot be empty") }
+            if v.separator.isEmpty { problems.append("\(n): separator cannot be empty") }
             if let d = v.defaultParsed {
                 if case .duration(let dur) = d, dur < .zero {
                     problems.append("\(n): default cannot be negative")
@@ -129,8 +135,26 @@ public struct Declaration: Sendable {
                     }
                 }
             }
-            if let r = v.deprecated?.replacedBy, !EnvName.isValid(r) {
-                problems.append("\(n): deprecated.replacedBy \(r) is not a valid variable name")
+            if let d = v.deprecated {
+                problems += deprecationProblems(d, input: n, required: v.required)
+                if let r = d.replacedBy, !EnvName.isValid(r) {
+                    problems.append("\(n): deprecated.replacedBy \(r) is not a valid variable name")
+                }
+            }
+            if v.type == .keySet {
+                if !v.secret { problems.append("\(n): a keySet is always secret") }
+                if v.minKeys.map({ $0 < 1 }) ?? false { problems.append("\(n): minKeys must be at least 1") }
+                if v.effectiveMaxKeys < v.effectiveMinKeys {
+                    problems.append("\(n): maxKeys \(v.effectiveMaxKeys) is below minKeys \(v.effectiveMinKeys)")
+                }
+                for (field, x) in [("keyMinLength", v.keyMinLength), ("keyMaxLength", v.keyMaxLength)] {
+                    if let x, x < 1 { problems.append("\(n): \(field) must be at least 1") }
+                }
+                if let a = v.keyMinLength, let b = v.keyMaxLength, a > b {
+                    problems.append("\(n): keyMinLength \(a) is above keyMaxLength \(b)")
+                }
+            } else if v.minKeys != nil || v.maxKeys != nil || v.keyMinLength != nil || v.keyMaxLength != nil {
+                problems.append("\(n): minKeys, maxKeys, keyMinLength and keyMaxLength apply only to keySet variables")
             }
             if EnvName.looksLikeFeatureFlag(n) {
                 warnings.append("\(n) looks like a feature flag. Flags that change without a rollout belong in a flag service (OpenFeature), not the environment (SPEC §10).")
@@ -170,7 +194,12 @@ public struct Declaration: Sendable {
             if let p = f.pattern, let why = RE2.problem(in: p) { problems.append("\(n): pattern \(p) \(why)") }
             if let a = f.minLength, let b = f.maxLength, a > b { problems.append("\(n): minLength \(a) is above maxLength \(b)") }
             if let d = f.minRemaining, d < .zero { problems.append("\(n): minRemaining cannot be negative") }
-            if f.format == .toml { problems.append("\(n): TOML config files are not supported by this SDK yet; use JSON or YAML") }
+            if let d = f.deprecated {
+                problems += deprecationProblems(d, input: n, required: f.required)
+                if let r = d.replacedBy, !EnvName.isValid(r) && !EnvName.isValidInputName(r) {
+                    problems.append("\(n): deprecated.replacedBy \(r) is not a valid input name")
+                }
+            }
             if let pv = f.passwordVar {
                 if let v = varsByName[pv] {
                     if !v.secret { problems.append("\(n): passwordVar \(pv) must be a secret variable") }
@@ -197,12 +226,32 @@ public struct Declaration: Sendable {
             }
             if let other = mounts[mount] { problems.append("\(n): shares mount directory \(mount) with \(other)") }
             mounts[mount] = n
+            if o.keySeparator.isEmpty { problems.append("\(n): keySeparator cannot be empty") }
+            if contractFirst { continue }
             if o.format == .toml { problems.append("\(n): TOML overlays are not supported; swift-configuration reads JSON and YAML") }
+            if o.keySeparator != ConfigOverlay.keySeparator {
+                problems.append("\(n): keySeparator must be \"\(ConfigOverlay.keySeparator)\", the separator of swift-configuration keys")
+            }
             if o.reload == .watch {
                 problems.append("\(n): reload: watch is not supported; docuconf reads variables once at boot, so declare .restart and let a changed overlay roll the pods")
             }
         }
         return (problems, warnings)
+    }
+
+    /// SPEC §4.2: the message is not blank and at most 500 characters, and a required input cannot be
+    /// deprecated, since the platform could not stop setting it.
+    static func deprecationProblems(_ d: Deprecation, input n: String, required: Bool) -> [String] {
+        var problems: [String] = []
+        if d.message.unicodeScalars.allSatisfy({ CharacterSet.whitespacesAndNewlines.contains($0) }) {
+            problems.append("\(n): deprecated message cannot be blank; say what to use instead, or why the input is going away")
+        }
+        let length = d.message.unicodeScalars.count
+        if length > 500 { problems.append("\(n): deprecated message is \(length) characters, more than 500") }
+        if required {
+            problems.append("\(n): a required input cannot be deprecated, since the platform could not stop setting it; make it optional first")
+        }
+        return problems
     }
 
     static func isAbsoluteNormalized(_ p: String) -> Bool {

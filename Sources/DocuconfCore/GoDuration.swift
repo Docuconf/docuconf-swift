@@ -141,7 +141,8 @@ extension DurationEncoding {
         return negative ? -total : total
     }
 
-    /// ISO 8601 durations of days and time: `PT90S`, `PT1.5S`, `P1DT2H`, `PT1H30M`.
+    /// ISO 8601 durations of days and time: `PT90S`, `PT1.5S`, `P1DT2H`, `PT1H30M`. Upper case and unsigned; no
+    /// years, months or weeks, which have no fixed length.
     private static func iso8601Nanoseconds(_ text: String) -> Int64? {
         guard text.hasPrefix("P") else { return nil }
         var rest = Substring(text.dropFirst())
@@ -162,7 +163,6 @@ extension DurationEncoding {
             rest = rest.dropFirst()
             let unit: Int64
             switch (inTime, designator) {
-            case (false, "W"): unit = 7 * 86_400 * second
             case (false, "D"): unit = 86_400 * second
             case (true, "H"): unit = 3600 * second
             case (true, "M"): unit = 60 * second
@@ -187,23 +187,24 @@ extension DurationEncoding {
         return sum(parts)
     }
 
-    /// .NET `TimeSpan` text: `[d.]hh:mm[:ss[.fffffff]]`.
+    /// .NET `TimeSpan` text as SPEC §5 has it: `[d.]hh:mm:ss[.f]`, where `hh` is one or two digits below 24, `mm`
+    /// and `ss` two digits below 60, and `f` one to seven digits. Unsigned.
     private static func timespanNanoseconds(_ text: String) -> Int64? {
         let fields = text.split(separator: ":", omittingEmptySubsequences: false)
-        guard fields.count == 2 || fields.count == 3 else { return nil }
+        guard fields.count == 3 else { return nil }
         // Days, if any, are before a '.' in the first field.
         let first = fields[0].split(separator: ".", omittingEmptySubsequences: false)
         guard first.count <= 2 else { return nil }
         let days = first.count == 2 ? number(first[0]) : 0
         guard let days, let hours = number(first[first.count - 1]), hours < 24 else { return nil }
-        guard let minutes = number(fields[1]), minutes < 60, fields[1].count <= 2, first[first.count - 1].count <= 2 else {
+        guard let minutes = number(fields[1]), minutes < 60, fields[1].count == 2, first[first.count - 1].count <= 2 else {
             return nil
         }
         var seconds: Int64 = 0
         var frac: Int64 = 0
         if fields.count == 3 {
             let s = fields[2].split(separator: ".", omittingEmptySubsequences: false)
-            guard s.count <= 2, s[0].count <= 2, let secs = number(s[0]), secs < 60 else { return nil }
+            guard s.count <= 2, s[0].count == 2, let secs = number(s[0]), secs < 60 else { return nil }
             seconds = secs
             if s.count == 2 {
                 guard s[1].count <= 7, let f = fraction(s[1], of: second) else { return nil }
