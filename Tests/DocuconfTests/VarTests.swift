@@ -234,6 +234,47 @@ let validEnv = [
         #expect(try await codes(["KEYS": "abc, "]) == ["KEYS/out_of_range"])
     }
 
+    /// The declaration path parses a string exactly as contract-first mode does (SPEC §5), not as
+    /// swift-configuration would: bools are true/false in any case only, floats are decimal.
+    @Test func scalarsParseLikeContractFirst() async throws {
+        struct C: DocuconfConfig {
+            @Env("flag", "Turns the feature on") var flag: Bool?
+            @Env("count", "Number of retries") var count: Int?
+            @Env("ratio", "Share of traffic") var ratio: Double?
+            @Env("timeout", "Request timeout") var timeout: Duration?
+            @Env("level", "Minimum log level") var level: LogLevel?
+        }
+        func codes(_ env: [String: String]) async throws -> [String] {
+            await (try Sandbox(env)).violations(C.self).map { "\($0.input)/\($0.code.rawValue)" }.sorted()
+        }
+        for bad in ["yes", "no", "1", "0", "Y", "on", " true", "true\n", "t"] {
+            #expect(try await codes(["FLAG": bad]) == ["FLAG/invalid_type"], "\(bad)")
+        }
+        for (text, want) in [("TRUE", true), ("False", false), ("true", true)] {
+            #expect(try await Sandbox(["FLAG": text]).load(C.self).flag == want)
+        }
+        let ok = try await Sandbox(["COUNT": "+5", "RATIO": "1e-1", "TIMEOUT": "1.5", "LEVEL": "warn"]).load(C.self)
+        #expect(ok.count == 5 && ok.ratio == 0.1 && ok.timeout == .milliseconds(1500) && ok.level == .warn)
+        #expect(try await Sandbox(["COUNT": "007"]).load(C.self).count == 7)
+        for (env, want) in [
+            (["COUNT": "5.0"], "COUNT/invalid_type"), (["COUNT": "0x10"], "COUNT/invalid_type"), (["COUNT": " 5"], "COUNT/invalid_type"),
+            (["RATIO": "0x1p3"], "RATIO/invalid_type"), (["RATIO": "inf"], "RATIO/invalid_type"), (["RATIO": "1,5"], "RATIO/invalid_type"),
+            (["TIMEOUT": "0x10"], "TIMEOUT/invalid_type"), (["TIMEOUT": "30s"], "TIMEOUT/invalid_type"),
+            (["LEVEL": "WARN"], "LEVEL/not_in_enum"),
+        ] {
+            #expect(try await codes(env) == [want], "\(env)")
+        }
+        // Each input gets the same result through contract-first mode.
+        let doc = try ContractDocument(contract: [
+            "apiVersion": "docuconf.dev/v1alpha1", "kind": "ConfigContract",
+            "vars": ["FLAG": ["type": "bool", "description": "Turns the feature on"],
+                     "RATIO": ["type": "float", "description": "Share of traffic"]],
+        ])
+        for bad in ["yes", "1", "0x1p3"] {
+            #expect(throws: ConfigurationError.self) { try doc.load(environment: ["FLAG": bad, "RATIO": bad]) }
+        }
+    }
+
     /// Inputs from the shared conformance suite, through the declaration path (swift-configuration parsing).
     @Test func conformanceInputsThroughTheDeclarationPath() async throws {
         struct C: DocuconfConfig {

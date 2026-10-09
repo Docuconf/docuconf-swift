@@ -410,10 +410,12 @@ they cannot be read. Names that look like feature flags (`ENABLE_`, `FF_`, `FEAT
 
 ### Wire encodings and parsing
 
-swift-configuration parses the values, so they mean the same to docuconf as to any other `ConfigReader` call:
+swift-configuration reads the values. A value given as one string (an environment variable, a `.env` file) is
+parsed by docuconf with the SPEC §5 rules, the same code contract-first mode runs, so both paths accept exactly the
+same text; a provider with typed values (a JSON or YAML config file) is read with the reader's typed accessors:
 
 - **Durations** use the `seconds` encoding: `REQUEST_TIMEOUT=30` or `1.5`. swift-configuration has no duration type,
-  and a number of seconds is what it reads natively (`reader.double(forKey:)`). The contract still shows defaults
+  and a number of seconds is the simplest wire form (an overlay may hold it as a JSON number). The contract still shows defaults
   and bounds in Go syntax (`30s`, `1m30s`), and the platform renders the number. A Go-style value in the environment
   is rejected with the number to write instead: `REQUEST_TIMEOUT [invalid_type]: is not a number of seconds;
   durations are read as plain seconds, so write 30 (got "30s")`.
@@ -421,7 +423,9 @@ swift-configuration parses the values, so they mean the same to docuconf as to a
   `EnvironmentVariablesProvider`'s array decoder trims whitespace around items and SPEC §5 forbids that: `" a,b"`
   is `[" a", "b"]`, and `"80, 443"` for a list of integers is `invalid_type`. A provider with real arrays (a JSON
   or YAML config file) is read with `stringArray`/`intArray`.
-- **Booleans** accept `true`/`false` in any case, and also `yes`/`no`/`1`/`0`, as the host does.
+- **Booleans** accept `true`/`false` in any case, nothing else: `yes`, `no`, `1` and `0`, which swift-configuration
+  reads as bools, are `invalid_type`, as in contract-first mode. **Integers** are base-10 with an optional sign
+  (`+5`, `007`); **floats** are decimal (`1e3`, `.5`), never hexadecimal (`0x1p3`), `NaN` or infinite.
 - On top of the host, docuconf treats an empty string as unset for every type except `string` (SPEC §5), reports an
   integer (or integer list item) beyond the 64-bit range as `out_of_range` rather than `invalid_type`, rejects
   `NaN` and infinity, and never trims values. It warns when a secret ends in a newline (a Secret made with
