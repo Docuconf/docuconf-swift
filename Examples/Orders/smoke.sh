@@ -87,11 +87,11 @@ grep -q missing_required <<<"$output" || fail "no missing_required in the output
 grep -q out_of_range <<<"$output" || fail "no out_of_range in the output"
 echo "ok: invalid start exits $status"
 
-# 3. An empty second webhook key (a trailing comma): the item length check fails it at boot, without printing a key.
+# 3. An empty second webhook key (a trailing comma): the key set fails it at boot, without printing a key.
 status=0
 output=$(DATABASE_URL=$secret WEBHOOK_KEYS="$old_key," "$bin" 2>&1) || status=$?
 echo "$output"
 [ "$status" -eq 1 ] || fail "want exit 1 for an empty webhook key, got $status"
-grep -q 'WEBHOOK_KEYS \[out_of_range\]' <<<"$output" || fail "no WEBHOOK_KEYS out_of_range in the output"
+grep -q 'WEBHOOK_KEYS \[out_of_range\]: key 1 is empty' <<<"$output" || fail "no WEBHOOK_KEYS out_of_range for the empty key in the output"
 grep -q webhook-key <<<"$output" && fail "the output leaks a webhook key"
 echo "ok: an empty webhook key exits 1"

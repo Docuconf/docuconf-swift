@@ -59,15 +59,27 @@ jobs:
       - name: Install cue
         run: go install cuelang.org/go/cmd/cue@v0.17.1 && echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      # The tests compare the shared export fixture with docuconf-go's golden contract through the CLI, and the
+      # docs checks below use it.
+      - name: Install the docuconf CLI
+        working-directory: docuconf-go/cmd/docuconf
+        run: go install .
+
       # Everything, including the TLS and keystore checks, which need the package's TLS trait.
       - run: swift build --build-tests --traits TLS
       - run: swift test --traits TLS
         env:
           DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
           DOCUCONF_REQUIRE_VET: "1"
-          # The shared conformance suite (SPEC §12), run through contract-first mode.
+          # The shared conformance suite (SPEC §12), run through contract-first mode. Any skipped case fails it.
           DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
           DOCUCONF_REQUIRE_CONFORMANCE: "1"
+          # The shared export check (SPEC §11.2 item 3): SharedExportTests runs `docuconf conformance export`.
+          DOCUCONF_REQUIRE_EXPORT: "1"
+          DOCUCONF_EXPORT_OUT: /tmp/fixture-exported.cue
+
+      - name: The shared export fixture matches the golden contract
+        run: docuconf conformance export --golden docuconf-go/conformance/export/golden.cue /tmp/fixture-exported.cue
 
       # The default build, as most apps get it: no swift-certificates or swift-crypto. This run also checks the
       # README snippets (ReadmeTests) and that TLS inputs are rejected with a hint.
@@ -115,10 +127,6 @@ jobs:
 
       - name: Smoke-test the orders example
         run: Examples/Orders/smoke.sh
-
-      - name: Install the docuconf CLI
-        working-directory: docuconf-go/cmd/docuconf
-        run: go install .
 
       # CONFIG.md, CONFIG.agents.md and docs.json are generated from the
       # committed contract.cue (the exports above write to /tmp, so a

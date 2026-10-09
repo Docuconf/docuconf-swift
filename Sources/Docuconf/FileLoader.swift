@@ -25,7 +25,7 @@ public struct DefaultDecoding: StructuredDecoding {
                 throw MalformedFileError(Self.describe(e))
             }
         case .toml:
-            throw MalformedFileError("TOML is not supported")
+            return try FoundationDecoding.decodeTOML(type, from: data)
         }
     }
 
@@ -144,7 +144,7 @@ struct FileLoader: Sendable {
         case .caBundle:
             switch PEM.certificates(in: data) {
             case .failure(let problems):
-                return .failure([Violation(.fileMalformed, name, "\(path) \(problems[0].message)")])
+                return .failure([Violation(problems[0].code, name, "\(path) \(problems[0].message)")])
             case .success(let certs):
                 let min = spec.minCertificates ?? 1
                 if certs.count < min {
@@ -193,7 +193,8 @@ extension Violation {
 #if TLS
 /// PEM helpers on swift-certificates.
 enum PEM {
-    /// Every certificate in a PEM file. Fails if the file has no PEM blocks or a certificate does not parse.
+    /// Every certificate in a PEM file. A file that is not PEM is `file_malformed`; a certificate block that does
+    /// not parse is `certificate_invalid` (SPEC §11.2 item 5). A PEM file with no certificate block succeeds empty.
     static func certificates(in data: Data) -> Checked<[Certificate]> {
         guard let text = String(data: data, encoding: .utf8) else { return .failure([Violation(.fileMalformed, "", "is not PEM text")]) }
         let documents: [PEMDocument]
@@ -207,7 +208,7 @@ enum PEM {
             do {
                 certs.append(try Certificate(derEncoded: doc.derBytes))
             } catch {
-                return .failure([Violation(.fileMalformed, "", "holds a malformed certificate (block \(i + 1))")])
+                return .failure([Violation(.certificateInvalid, "", "holds a certificate that does not parse (block \(i + 1))")])
             }
         }
         return .success(certs)

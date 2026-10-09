@@ -24,7 +24,7 @@ The package depends on the SDK in this repository as `.package(name: "docuconf-s
 | `ALLOWED_ORIGINS` | list of strings | comma-separated, at least 1 item; default `http://localhost:3000` |
 | `REQUEST_TIMEOUT` | duration | number of seconds, 1–300 (`1s`–`5m`), default `30` |
 | `WORKER_COUNT` | int | 1–64, default `4` |
-| `WEBHOOK_KEYS` | list of strings | comma-separated, secret, optional; 1–2 keys of 32–256 characters each |
+| `WEBHOOK_KEYS` | keySet | comma-separated, always secret, optional; 1–2 keys of 32–256 characters each |
 
 Each is read from swift-configuration's key (`log.level`), which `EnvironmentVariablesProvider` maps to the
 upper-cased name (`LOG_LEVEL`).
@@ -62,7 +62,8 @@ no `DATABASE_URL` and checks it fails with `missing_required` and `out_of_range`
 ## Rotate a key
 
 `WEBHOOK_KEYS` is a key set: `POST /webhooks/payments` accepts a body whose `X-Signature` header is the hex
-HMAC-SHA256 of the body under any key in the list ([`Webhook.swift`](Sources/Orders/Webhook.swift)). A variable is
+HMAC-SHA256 of the body under any key in the set: [`Webhook.swift`](Sources/Orders/Webhook.swift) checks it with
+`KeySet.verify`, which tries every key and so does not reveal which one matched. A variable is
 read once, at start, so a new key reaches the service only when the pods restart; with two keys valid at once, no
 webhook is turned away while that happens:
 
@@ -70,13 +71,15 @@ webhook is turned away while that happens:
 2. Switch the sender to the new key.
 3. Remove the old key (`new`), and roll out.
 
-It is declared as `@Env("webhook.keys", ..., .secret, .items(1...2), .itemLength(32...256)) var webhookKeys:
-[String]?`, so a trailing comma or a truncated key stops the service at boot instead of locking out the sender:
+The generated docs ([`CONFIG.md`](CONFIG.md)) print these steps for every key set. It is declared as
+`@Env("webhook.keys", ..., .keyLength(32...256)) var webhookKeys: KeySet?` (a key set is always secret, and holds 1
+to 2 keys by default), so a trailing comma or a truncated key stops the service at boot instead of locking out the
+sender:
 
 ```console
 $ DATABASE_URL=postgres://orders:pw@localhost:5432/orders WEBHOOK_KEYS=old-webhook-key-0123456789abcdef0123, swift run Orders
 docuconf: 1 configuration problem:
-  - WEBHOOK_KEYS [out_of_range]: item 1 is 0 characters, shorter than 32
+  - WEBHOOK_KEYS [out_of_range]: key 1 is empty (a stray separator?)
 ```
 
 In a values file, the key set is a `secretKeyRef`:

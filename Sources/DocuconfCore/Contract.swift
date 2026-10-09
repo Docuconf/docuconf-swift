@@ -109,6 +109,13 @@ public enum Contract {
             if let x = v.itemMax { out.append(("itemMax", .int(x))) }
             if let x = v.itemMinLength { out.append(("itemMinLength", .int(x))) }
             if let x = v.itemMaxLength { out.append(("itemMaxLength", .int(x))) }
+        case .keySet:
+            out.append(("encoding", .string(v.listWire.rawValue)))
+            if v.listWire == .csv && v.separator != "," { out.append(("separator", .string(v.separator))) }
+            out.append(("minKeys", .int(v.effectiveMinKeys)))
+            out.append(("maxKeys", .int(v.effectiveMaxKeys)))
+            if let x = v.keyMinLength { out.append(("keyMinLength", .int(x))) }
+            if let x = v.keyMaxLength { out.append(("keyMaxLength", .int(x))) }
         case .json:
             if let x = v.maxLength { out.append(("maxLength", .int(x))) }
             if let s = v.schema { out.append(("schema", s)) }

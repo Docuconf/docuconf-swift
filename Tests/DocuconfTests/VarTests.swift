@@ -172,7 +172,7 @@ let validEnv = [
         #expect(c.databaseURL.absoluteString == "postgresql://db/x")
     }
 
-    @Test func envNamesMatchTheProvider() throws {
+    @Test func envNamesMatchTheProvider() async throws {
         // The contract's variable names must be exactly what EnvironmentVariablesProvider reads for each key.
         let declaration = try Declaration(ServiceConfig.self)
         for v in declaration.vars {
@@ -271,7 +271,7 @@ let validEnv = [
                      "RATIO": ["type": "float", "description": "Share of traffic"]],
         ])
         for bad in ["yes", "1", "0x1p3"] {
-            #expect(throws: ConfigurationError.self) { try doc.load(environment: ["FLAG": bad, "RATIO": bad]) }
+            await #expect(throws: ConfigurationError.self) { try await doc.load(environment: ["FLAG": bad, "RATIO": bad]) }
         }
     }
 

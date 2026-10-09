@@ -1,20 +1,18 @@
 import Crypto
+import Docuconf
 import Foundation
 
 /// Checks the signature on incoming payment webhooks against the key set in WEBHOOK_KEYS.
 enum Webhook {
     /// Whether `signature`, the hex-encoded HMAC-SHA256 of `body`, was made with any of `keys`. Accepting every key
     /// in the set is what lets a key be rotated: during the overlap the old and the new key both work.
-    static func verify(keys: [String], body: Data, signature: String) -> Bool {
+    static func verify(keys: KeySet, body: Data, signature: String) -> Bool {
         guard let mac = hexDecoded(signature) else { return false }
-        var ok = false
-        for key in keys {
-            // A constant-time comparison, and every key is checked, so the time taken does not say which one
-            // matched.
-            let valid = HMAC<SHA256>.isValidAuthenticationCode(mac, authenticating: body, using: SymmetricKey(data: Data(key.utf8)))
-            ok = valid || ok
+        // `KeySet.verify` tries every key, even after a match, and the HMAC check compares in constant time, so the
+        // time taken does not say which key matched.
+        return keys.verify { key in
+            HMAC<SHA256>.isValidAuthenticationCode(mac, authenticating: body, using: SymmetricKey(data: key))
         }
-        return ok
     }
 
     /// The hex-encoded HMAC-SHA256 of `body` under `key`, as a sender makes it.
