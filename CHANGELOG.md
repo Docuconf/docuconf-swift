@@ -4,6 +4,36 @@ All notable changes to docuconf-swift are documented here. Entries after 0.1.0 a
 [release-please](https://github.com/googleapis/release-please) from Conventional Commit messages; see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.2.0](https://github.com/Docuconf/docuconf-swift/compare/0.1.0...0.2.0) (2026-10-10)
+
+
+### Features
+
+* beta suite (keySet, deprecated rules, strict parsing, files, profiles, overlays) ([b540d7b](https://github.com/Docuconf/docuconf-swift/commit/b540d7b638af34bee215b07104f4601ea28df56b))
+* beta suite (keySet, deprecated rules, strict parsing, files, profiles, overlays) ([afa8e13](https://github.com/Docuconf/docuconf-swift/commit/afa8e13f17e3e59a2be59f2d628de13b66e1eb80))
+* devX fixes (loadOrExit, nested structs, secret redaction, opt-in TLS trait) ([ce4de67](https://github.com/Docuconf/docuconf-swift/commit/ce4de67972bce0d673178fe8d1b61d28df778c76))
+* **examples:** dual-key webhook key set with rotation ([db4620b](https://github.com/Docuconf/docuconf-swift/commit/db4620b11c93a8db40325d04b3f2746f5bec9025))
+* export description and details from doc comments ([5a3529e](https://github.com/Docuconf/docuconf-swift/commit/5a3529e118d794161e453f25f9a7189648853fc8))
+* export description and details from doc comments ([998a69a](https://github.com/Docuconf/docuconf-swift/commit/998a69ab931104ff39d9fa1c5803a1febfbed001))
+* full conformance (JSON Schema checks; csv items not trimmed) ([087b277](https://github.com/Docuconf/docuconf-swift/commit/087b2774ff4a63731f25c405993326368fa3e396))
+* full conformance (no skipped capability tags) ([2602971](https://github.com/Docuconf/docuconf-swift/commit/2602971cf1dc0481a86fdb5a2d1b2b0ebe767784))
+* maxLength on url/json and item length limits on string lists ([d3428f8](https://github.com/Docuconf/docuconf-swift/commit/d3428f817173ca2d187e84ecfbba02a776fce52a))
+* maxLength on url/json and item length limits on string lists ([e7e0eeb](https://github.com/Docuconf/docuconf-swift/commit/e7e0eeb80c3baca0a4e82537f1f3f927446f5294))
+* reload hooks and status; one empty-key message ([6f7c9ad](https://github.com/Docuconf/docuconf-swift/commit/6f7c9ad8bfc7c40627eab5b3f76de7e7deb86ac3))
+* reload hooks and status; one empty-key message ([6b57538](https://github.com/Docuconf/docuconf-swift/commit/6b575383f3777458b66e1473a246ee1b411f9457))
+
+
+### Bug Fixes
+
+* parse declared scalars exactly as contract-first mode does ([8e2970c](https://github.com/Docuconf/docuconf-swift/commit/8e2970ce0f3b464b0a3bddda20a062228c3fb9fb))
+
+
+### Documentation
+
+* **examples:** length limits and generated CONFIG docs ([0cb9eb7](https://github.com/Docuconf/docuconf-swift/commit/0cb9eb72f48353ae72d9cd042c0a97c87ffcc296))
+* **examples:** length limits, generated CONFIG docs, and link docuconf.dev ([1a74399](https://github.com/Docuconf/docuconf-swift/commit/1a743999f296ecae0a62e71f78cc1085b6727407))
+* link docuconf.dev ([6763bb6](https://github.com/Docuconf/docuconf-swift/commit/6763bb6d695af1df56d19f94c4494e13d94c92a4))
+
 ## 0.1.0
 
 First version: typed configuration contracts for server-side Swift on
