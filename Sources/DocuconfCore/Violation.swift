@@ -1,7 +1,7 @@
 import Foundation
 
 /// Stable error codes (SPEC §11.2 item 5).
-public enum ViolationCode: String, Sendable, CaseIterable {
+public enum ViolationCode: String, Sendable, CaseIterable, Codable {
     case missingRequired = "missing_required"
     case invalidType = "invalid_type"
     case outOfRange = "out_of_range"

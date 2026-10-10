@@ -40,7 +40,8 @@ public struct DefaultDecoding: StructuredDecoding {
     }
 }
 
-/// What a file input needs to be loaded again, for `reload: watch`.
+/// What a file input needs to be loaded again, for `reload: watch`. The keystore password is the one read at boot:
+/// a reload never reads the environment again (SPEC §4.6.2), so rotating it needs a rollout.
 struct FileReloadContext: Sendable {
     var options: LoadOptions
     var keystorePassword: String?
@@ -61,7 +62,8 @@ struct FileLoader: Sendable {
         path = options.rooted(path)
         let password = spec.passwordVar.flatMap { rawSecrets[$0] }
         let context = FileReloadContext(options: options, keystorePassword: password)
-        input.setState(FileLoadState(path: path, context: context))
+        let reloader = FileReloader(spec: spec, path: path, context: context)
+        input.setState(FileLoadState(path: path, context: reloader))
 
         var exists: ObjCBool = false
         let present = FileManager.default.fileExists(atPath: path, isDirectory: &exists)
@@ -87,6 +89,7 @@ struct FileLoader: Sendable {
         case .success(let file):
             do {
                 try input.store(file, decoders: options.decoders)
+                reloader.booted()
                 return []
             } catch let e as ValueConversionError {
                 return [Self.violation(e, spec)]

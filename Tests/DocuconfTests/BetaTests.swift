@@ -66,6 +66,25 @@ let keyB = "key-bbbb-0002"
         }
     }
 
+    /// SPEC §4.3: an empty key's message is exactly `key N is empty`, `N` 1-based as received, in both modes.
+    @Test(arguments: [("old-key-0001,", 2), (",new-key-0002", 1), ("aaaa-0001,,bbbb-0002", 2)])
+    func emptyKeyMessage(value: String, position: Int) async throws {
+        let box = try Sandbox(["WEBHOOK_KEYS": value])
+        // `a,,b` is also three keys, one more than WebhookConfig allows (too_many_items).
+        let declared = await box.violations(WebhookConfig.self).filter { $0.code == .outOfRange }
+        #expect(declared.map(\.message) == ["key \(position) is empty"])
+
+        let doc = try ContractDocument(contract: [
+            "apiVersion": "docuconf.dev/v1alpha1", "kind": "ConfigContract", "metadata": ["name": "svc"],
+            "vars": ["WEBHOOK_KEYS": ["type": "keySet", "description": "Keys that verify signatures", "secret": true, "maxKeys": 3]],
+        ])
+        await #expect {
+            _ = try await doc.load(environment: ["WEBHOOK_KEYS": value])
+        } throws: { error in
+            (error as? ConfigurationError)?.violations.map { "\($0.code.rawValue): \($0.message)" } == ["out_of_range: key \(position) is empty"]
+        }
+    }
+
     @Test func missingIsRequired() async throws {
         let v = try await Sandbox().violations(WebhookConfig.self)
         #expect(v.map(\.code) == [.missingRequired])

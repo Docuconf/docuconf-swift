@@ -117,7 +117,9 @@ extension VarSpec {
                 var strings: [String] = []
                 let what = type == .keySet ? "key" : "item"
                 for (n, e) in elements.enumerated() {
-                    guard case .string(let s) = e else { return .failure(invalid("\(what) \(n) is not a string", wire)) }
+                    // A key is named by its 1-based position (SPEC §4.3), a list item by its index.
+                    let position = type == .keySet ? n + 1 : n
+                    guard case .string(let s) = e else { return .failure(invalid("\(what) \(position) is not a string", wire)) }
                     strings.append(s)
                 }
                 return .success(.stringList(strings))
@@ -314,7 +316,8 @@ extension VarSpec {
     }
 
     /// A key set's rules (SPEC §4.3): `minKeys`..`maxKeys` keys, and every key non-empty and within
-    /// `keyMinLength`..`keyMaxLength` characters. Messages give positions and lengths, never a key.
+    /// `keyMinLength`..`keyMaxLength` characters. Messages give 1-based positions and lengths, never a key: an empty
+    /// key is exactly `key N is empty`.
     private func checkKeys(_ keys: [String]) -> [Violation] {
         var out: [Violation] = []
         let n = keys.count
@@ -324,10 +327,11 @@ extension VarSpec {
         if n > effectiveMaxKeys {
             out.append(Violation(.tooManyItems, name, "has \(n) keys; at most \(effectiveMaxKeys) allowed"))
         }
-        for (i, key) in keys.enumerated() {
+        // Keys are named by their 1-based position as received: `old,` has an empty key 2 (SPEC §4.3).
+        for (i, key) in zip(1..., keys) {
             let length = key.unicodeScalars.count
             if length == 0 {
-                out.append(Violation(.outOfRange, name, "key \(i) is empty (a stray separator?)"))
+                out.append(Violation(.outOfRange, name, "key \(i) is empty"))
                 break
             }
             if let keyMinLength, length < keyMinLength {

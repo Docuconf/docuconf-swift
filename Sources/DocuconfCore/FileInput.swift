@@ -341,7 +341,7 @@ public struct FileInput<Value: FileValue>: AnyFileInput {
 }
 
 /// The projected value of a ``FileInput`` (`$routes`): its contract entry, and the hooks the server SDK
-/// uses to reload it (`$routes.changes(...)`).
+/// uses to reload it (`$routes.onChange { ... }`, `$routes.changes(...)`, `$routes.reloadStatus`).
 public struct FileInputHandle<Value: FileValue>: Sendable {
     public let spec: FileSpec
     package let box: Box<Value>
@@ -370,7 +370,8 @@ public struct FileRule<Base>: Sendable {
     public static func pathEnv(_ name: String) -> Self { Self { $0.pathEnv = name } }
     /// Long-form documentation in CommonMark (see ``VarRule/details(_:)``).
     public static func details(_ text: String) -> Self { Self { $0.details = text } }
-    /// `.watch` promises the app reloads the file itself; consume `$input.changes()` to do so.
+    /// `.watch` promises the app reloads the file itself: register `$input.onChange { ... }` hooks or iterate
+    /// `$input.changes()`, and read the property at each use.
     public static func reload(_ r: Reload) -> Self { Self { $0.reload = r } }
     /// Upper bound in bytes.
     public static func maxSize(_ bytes: Int) -> Self { Self { $0.maxSize = bytes } }
