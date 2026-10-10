@@ -409,7 +409,8 @@ its length, never its value:
 **Key sets.** A `KeySet` is a set of secret keys that are all valid at once, so a key can be rotated without
 downtime ([spec section 6.1](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md#61-rotation)): the
 platform sets `old,new` during the overlap. It is always secret, holds 1 to 2 keys unless `.keys` says otherwise, and
-never trims a key; an empty key (a stray separator) is always `out_of_range`, and the number of keys `too_few_items`
+never trims a key; an empty key (a stray separator) is always `out_of_range`, reported as `key N is empty` with `N`
+counted from 1 as received (`old,` has an empty key 2, `,new` an empty key 1), and the number of keys `too_few_items`
 or `too_many_items`. No message, `print` or `dump` shows a key:
 
 <!-- snippet: Tests/DocuconfTests/ReadmeSnippets.swift#key-set -->
@@ -551,9 +552,10 @@ declaration compiles and exports without the trait; loading it fails with a `Dec
 trait on.
 
 **Reloading.** `.reload(.watch)` tells the platform it need not restart the pod when the source changes. Your app
-keeps that promise by consuming the input's changes, which docuconf detects by polling the content (Kubernetes swaps a
-symlink, so every file of the input is re-read together). In a service, run the loop in a `Service`, as in
-[With Hummingbird](#with-hummingbird):
+keeps that promise by following the input's changes, with `onChange` hooks or a `changes(every:)` stream (see
+[Using a watched value](#using-a-watched-value)). docuconf detects a change by comparing a hash of the content
+(Kubernetes swaps a symlink, so every file of the input is re-read together). In a service, run the loop in a
+`Service`, as in [With Hummingbird](#with-hummingbird):
 
 <!-- snippet: Examples/Gateway/main.swift#reload -->
 ```swift
@@ -564,6 +566,62 @@ for await change in config.$routes.changes(every: .seconds(10)) {
     }
 }
 ```
+
+### Using a watched value
+
+With `.reload(.watch)`, docuconf swaps in changed content once it passes the checks it passed at boot. Content that
+fails them is not used: the previous value stays current, and the rejection is logged through `LoadOptions.warn` with
+the input's name and the violation codes, never the content. docuconf checks the input in one background task per
+input, which runs while at least one `onChange` hook or `changes(every:)` stream is registered, at the shortest
+interval any of them asked for (10 seconds by default). Reading the property never touches the disk: it returns the
+value of the last accepted reload. With no hook and no stream, nothing checks the input and the value read at boot
+stays.
+
+An app that copies a watched value once, into a TLS server context, an HTTP client or a connection pool, keeps the
+old value until the certificate expires. Either read the property at each use (for a TLS server, when it builds the
+context for a new connection), or rebuild what you made from it in an `onChange` hook:
+
+<!-- snippet: Tests/DocuconfTests/ReadmeSnippets.swift#watched-hook -->
+```swift
+// A client copies its trust roots when it is built: build a new one each time the bundle changes.
+let holder = ClientHolder(UpstreamClient(trusting: config.upstreamCAs.pem))
+let subscription = config.$upstreamCAs.onChange { bundle in
+    holder.replace(with: UpstreamClient(trusting: bundle.pem)).shutdown()
+}
+// ... and on shutdown:
+subscription.cancel()
+```
+
+`$input.onChange(every:_:)` takes an `async throws` closure that receives the new value, and returns a
+`ReloadSubscription`; `cancel()` unregisters the hook, and the background check stops when nothing is registered.
+Dropping the subscription does not cancel it. A hook is called after a reload is accepted, never after a rejected
+change. Several hooks may follow one input; they run one at a time, in the order they were registered, after the
+property already returns the new value. A hook that throws is logged with the input's name and the error's type only,
+and the other hooks still run. Hooks and `changes(every:)` streams share the background check, so one change is one
+reload, whichever of them is following it.
+
+`$input.reloadStatus` gives the input's reload state, for a health check or a metric:
+
+<!-- snippet: Tests/DocuconfTests/ReadmeSnippets.swift#watched-status -->
+```swift
+let status = config.$tls.reloadStatus  // generation, lastReload, lastRejected (time, input, codes)
+let encoder = JSONEncoder()
+encoder.dateEncodingStrategy = .iso8601
+let body = try encoder.encode(["serving-tls": status])  // {"serving-tls":{"generation":1}} after boot
+```
+
+`generation` is 1 after boot (0 for an optional input that was absent) and grows by one with each accepted reload;
+`lastReload` is the time of the last accepted reload; `lastRejected` is the last rejected change, as its time, the
+input's name and the violation codes, and a later accepted reload clears it.
+
+**Keystores.** A reload opens the new keystore with the password read at boot: docuconf never reads the environment
+again, and a process's environment does not change anyway. Rotating a keystore's password therefore needs a rollout,
+which also delivers the new keystore. A changed keystore that does not open with the boot password is rejected as
+`keystore_unreadable`, and the previous one stays current.
+
+**Contract-first mode** (`ContractDocument`) returns values read once, so a contract that declares `reload: watch` for
+a file input or an overlay is a `DeclarationError` that names the input. Declare the input with `@FileInput` and
+`.reload(.watch)` to reload it.
 
 ## Config-file overlays
 
@@ -685,6 +743,8 @@ surface is loaded:
   `binary` files for presence and `maxSize`.
 - **Warnings** go to `warn:`: a deprecated input that is set (its name and message, never the value), and a variable
   set both in the environment and in an overlay.
+- **Reload**: values are read once, so a contract that declares `reload: watch` for a file input or an overlay is a
+  `DeclarationError` naming the input, rather than a promise silently broken.
 
 `load` is `async`. `support` parses YAML and runs the certificate and keystore checks: pass the server SDK's
 `DocuconfFileSupport()` (certificates and keystores need the `TLS` trait). The default, `FoundationFileSupport()`,
@@ -737,6 +797,7 @@ not, such as details taken from DocC text and narrow integer types.
 - TOML overlays in declaration mode: swift-configuration has no TOML snapshot. TOML config file inputs work in both
   modes, and contract-first mode reads TOML overlays.
 - Reloading config-file overlays (`reload: watch`): variables are read once, at boot.
+- Reloading in contract-first mode: a contract that declares `reload: watch` is rejected when it is read.
 - Reading `contract.cue` itself in contract-first mode: export it to JSON with `cue export` first.
 - Markdown docs generated from the declaration (a SHOULD in the spec).
 - The `ca.crt` chain check validates against the system clock, not `LoadOptions.now`.

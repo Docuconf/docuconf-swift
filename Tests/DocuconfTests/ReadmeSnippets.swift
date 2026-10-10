@@ -65,3 +65,44 @@ func readmeContractFirst() async throws {
     if case .int(let port)? = values["PORT"] { print(port) }
     // snippet:end
 }
+
+struct WatchedConfig: DocuconfConfig {
+    @FileInput("serving-tls", "Certificate the app serves HTTPS with", path: "/etc/app/tls", .reload(.watch))
+    var tls: TLSKeyPair
+    @FileInput("upstream-cas", "Private CAs the upstream chains to", path: "/etc/app/ca/bundle.pem", .reload(.watch))
+    var upstreamCAs: CABundle
+}
+
+/// Stands in for an HTTP client that copies its trust roots when it is built.
+final class UpstreamClient: Sendable {
+    init(trusting pem: Data) {}
+    func shutdown() {}
+}
+
+/// Holds the current client, swapped when the CA bundle changes.
+final class ClientHolder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: UpstreamClient
+    init(_ client: UpstreamClient) { current = client }
+    func replace(with next: UpstreamClient) -> UpstreamClient { lock.withLock { defer { current = next }; return current } }
+}
+
+func readmeWatched(config: WatchedConfig) throws -> Data {
+    // snippet:watched-hook
+    // A client copies its trust roots when it is built: build a new one each time the bundle changes.
+    let holder = ClientHolder(UpstreamClient(trusting: config.upstreamCAs.pem))
+    let subscription = config.$upstreamCAs.onChange { bundle in
+        holder.replace(with: UpstreamClient(trusting: bundle.pem)).shutdown()
+    }
+    // ... and on shutdown:
+    subscription.cancel()
+    // snippet:end
+
+    // snippet:watched-status
+    let status = config.$tls.reloadStatus  // generation, lastReload, lastRejected (time, input, codes)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let body = try encoder.encode(["serving-tls": status])  // {"serving-tls":{"generation":1}} after boot
+    // snippet:end
+    return body
+}

@@ -16,7 +16,8 @@ import Foundation
 /// not support is a ``DeclarationError``), or it is `schema_mismatch`.
 ///
 /// Values are layered as a host with config files layers them (SPEC §4.4, §4.7): a variable's `default`, then the
-/// selected profile's default, then a config-file overlay, then the environment. File inputs (SPEC §4.6) and
+/// selected profile's default, then a config-file overlay, then the environment. Values are read once, so a contract
+/// that declares `reload: watch` for a file input or an overlay is a ``DeclarationError``. File inputs (SPEC §4.6) and
 /// overlays are read under `DOCUCONF_FILE_ROOT` when the environment sets it. JSON and TOML files need nothing
 /// more; YAML files and the certificate checks (`tls`, `caBundle`, `keystore`) need the server SDK's
 /// `DocuconfFileSupport`, passed as `support`.
@@ -102,7 +103,19 @@ public struct ContractDocument: Sendable {
         self.profiles = profiles
         self.configKeys = configKeys
         problems += Declaration.validate(vars: vars, files: files, overlays: overlays, contractFirst: true).problems
+        problems += Self.watchProblems(files: files, overlays: overlays)
         if !problems.isEmpty { throw DeclarationError(problems: problems) }
+    }
+
+    /// Contract-first mode returns values read once, so it cannot keep a `reload: watch` promise (SPEC §11.2 item 8):
+    /// a watched file input or overlay is a declaration problem, named, rather than a promise silently broken.
+    static func watchProblems(files: [FileSpec], overlays: [ConfigOverlay]) -> [String] {
+        let why = "contract-first mode reads each file once, at load"
+        return files.filter { $0.reload == .watch }.map {
+            "\($0.name): reload: watch is not supported; \(why). Declare the input with @FileInput and .reload(.watch), which reloads it, or set reload: restart"
+        } + overlays.filter { $0.reload == .watch }.map {
+            "overlay \($0.name): reload: watch is not supported; \(why). Set reload: restart"
+        }
     }
 
     /// Validates the process environment, and the files it points at, against the contract.

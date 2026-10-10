@@ -161,7 +161,8 @@ public enum FileType: String, Sendable {
 public enum Reload: String, Sendable {
     /// The app reads the file once; a changed source needs a rollout.
     case restart
-    /// The app reloads the file itself. With docuconf, iterate `$input.changes()` to receive new contents.
+    /// The app reloads the file itself. With docuconf, register `$input.onChange { ... }` hooks or iterate
+    /// `$input.changes()` to receive new contents; contract-first mode rejects it.
     case watch
 }
 

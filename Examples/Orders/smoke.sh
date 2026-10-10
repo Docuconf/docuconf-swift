@@ -92,6 +92,6 @@ status=0
 output=$(DATABASE_URL=$secret WEBHOOK_KEYS="$old_key," "$bin" 2>&1) || status=$?
 echo "$output"
 [ "$status" -eq 1 ] || fail "want exit 1 for an empty webhook key, got $status"
-grep -q 'WEBHOOK_KEYS \[out_of_range\]: key 1 is empty' <<<"$output" || fail "no WEBHOOK_KEYS out_of_range for the empty key in the output"
+grep -q 'WEBHOOK_KEYS \[out_of_range\]: key 2 is empty$' <<<"$output" || fail "no WEBHOOK_KEYS out_of_range for the empty key in the output"
 grep -q webhook-key <<<"$output" && fail "the output leaks a webhook key"
 echo "ok: an empty webhook key exits 1"

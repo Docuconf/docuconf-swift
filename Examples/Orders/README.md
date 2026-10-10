@@ -79,7 +79,7 @@ sender:
 ```console
 $ DATABASE_URL=postgres://orders:pw@localhost:5432/orders WEBHOOK_KEYS=old-webhook-key-0123456789abcdef0123, swift run Orders
 docuconf: 1 configuration problem:
-  - WEBHOOK_KEYS [out_of_range]: key 1 is empty (a stray separator?)
+  - WEBHOOK_KEYS [out_of_range]: key 2 is empty
 ```
 
 In a values file, the key set is a `secretKeyRef`:
