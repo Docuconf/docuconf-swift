@@ -1,17 +1,21 @@
 # docuconf-swift
 
+[![Swift versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fdocuconf%2Fdocuconf-swift%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/docuconf/docuconf-swift)
+[![Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fdocuconf%2Fdocuconf-swift%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/docuconf/docuconf-swift)
+
 The Swift SDK for [docuconf](https://github.com/docuconf): typed configuration contracts between an application and
 the Kubernetes platform that runs it. You declare your configuration once, as a Swift struct. docuconf then checks the
 environment and mounted files at boot, reports every problem at once, and exports a `contract.cue` that the platform
 checks before it deploys.
 
-Documentation: [docuconf.dev](https://docuconf.dev) · [Swift guide](https://docuconf.dev/languages/swift/)
+Documentation: [docuconf.dev](https://docuconf.dev) · [Swift guide](https://docuconf.dev/languages/swift/) ·
+[API reference](https://swiftpackageindex.com/docuconf/docuconf-swift/documentation/docuconf)
 
 It builds on Apple's [swift-configuration](https://github.com/apple/swift-configuration): values are read through a
 `ConfigReader`, with its key names and parsing, so `reader.int(forKey: "http.port")` elsewhere in your app reads the
 same value. It works with Hummingbird, Vapor or plain SwiftNIO.
 
-> Status: v0.1, implementing [spec v1alpha1](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md).
+> Status: pre-1.0, implementing [spec v1alpha1](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md).
 > Expect breaking changes until v1. Licensed under the [MIT License](LICENSE).
 
 Contents: [Install](#install) · [Declare and run](#declare-and-run) · [See an error](#see-an-error) ·
@@ -20,8 +24,9 @@ Contents: [Install](#install) · [Declare and run](#declare-and-run) · [See an 
 
 ## Install
 
-docuconf-swift is not released yet, so depend on its `main` branch. This is a complete `Package.swift` for an app:
+This is a complete `Package.swift` for an app:
 
+<!-- x-release-please-start-version -->
 <!-- checked-by: scripts/check-readme-install.sh -->
 ```swift
 // swift-tools-version: 6.2
@@ -31,8 +36,7 @@ let package = Package(
     name: "App",
     platforms: [.macOS(.v15)],
     dependencies: [
-        // Not released yet: use the main branch until the first tag (0.1.0), then `from: "0.1.0"`.
-        .package(url: "https://github.com/docuconf/docuconf-swift", branch: "main"),
+        .package(url: "https://github.com/docuconf/docuconf-swift", from: "0.2.0"),
     ],
     targets: [
         .executableTarget(name: "App", dependencies: [
@@ -41,9 +45,9 @@ let package = Package(
     ]
 )
 ```
+<!-- x-release-please-end -->
 
-Requires Swift 6.2 or later (swift-configuration's minimum), on Linux or macOS 15+. Once 0.1.0 is tagged, replace
-`branch: "main"` with `from: "0.1.0"`.
+Requires Swift 6.2 or later (swift-configuration's minimum), on Linux or macOS 15+.
 
 Two optional additions:
 
@@ -52,7 +56,7 @@ Two optional additions:
   `.product(name: "Configuration", package: "swift-configuration")`.
 - TLS key pairs, CA bundles and keystores are checked with swift-certificates and swift-crypto, which are built only
   with the package's `TLS` trait. Turn it on if you declare those file inputs:
-  `.package(url: "https://github.com/docuconf/docuconf-swift", branch: "main", traits: ["TLS"])`. Without it, such a
+  `.package(url: "https://github.com/docuconf/docuconf-swift", from: "0.2.0", traits: ["TLS"])`. Without it, such a <!-- x-release-please-version -->
   declaration fails at load with a message that says so.
 
 ## Declare and run

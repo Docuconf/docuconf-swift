@@ -101,11 +101,11 @@ import Testing
         #expect(error?.violations.map(\.description) == [block.body])
     }
 
-    @Test func theInstallBlockIsACompleteManifestOnTheMainBranch() throws {
+    @Test func theInstallBlockIsACompleteManifestOnTheCurrentRelease() throws {
         let readme = try String(contentsOf: Self.root.appendingPathComponent("README.md"), encoding: .utf8)
         let install = try #require(Self.blocks(in: readme).first { $0.marker == "<!-- checked-by: scripts/check-readme-install.sh -->" })
         #expect(install.body.hasPrefix("// swift-tools-version:"))
-        #expect(install.body.contains(#".package(url: "https://github.com/docuconf/docuconf-swift", branch: "main")"#))
+        #expect(install.body.contains(#".package(url: "https://github.com/docuconf/docuconf-swift", from: "\#(DocuconfSDK.version)")"#))
         #expect(install.body.contains(#".product(name: "Docuconf", package: "docuconf-swift")"#))
     }
 }
