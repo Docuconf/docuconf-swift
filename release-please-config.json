@@ -64,7 +64,8 @@
       "include-component-in-tag": false,
       "include-v-in-tag": false,
       "extra-files": [
-        "Sources/DocuconfCore/Contract.swift"
+        "Sources/DocuconfCore/Contract.swift",
+        "README.md"
       ]
     }
   }

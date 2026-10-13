@@ -6,7 +6,7 @@ let package = Package(
     name: "HelloHummingbird",
     platforms: [.macOS(.v15)],
     dependencies: [
-        // The SDK in this repository; an app uses .package(url: "https://github.com/docuconf/docuconf-swift", branch: "main").
+        // The SDK in this repository; an app depends on it as the README's Install section shows.
         .package(name: "docuconf-swift", path: "../.."),
         .package(url: "https://github.com/apple/swift-configuration", from: "1.2.0"),
         .package(url: "https://github.com/hummingbird-project/hummingbird", from: "2.5.0"),

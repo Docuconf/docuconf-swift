@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds a fresh app from the README's Install block (a complete Package.swift) and the quickstart's main.swift,
-# with the docuconf-swift dependency pinned to a pushed revision instead of the main branch.
+# with the docuconf-swift dependency pinned to a pushed revision instead of the released version.
 # Usage: scripts/check-readme-install.sh <revision> [repository-url]
 set -euo pipefail
 rev=${1:?usage: check-readme-install.sh <revision> [repository-url]}
@@ -11,8 +11,8 @@ trap 'rm -rf "$work"' EXIT
 
 # The first ```swift block after "## Install".
 awk '/^## Install/{f=1} f&&/^```swift$/{p=1;next} p&&/^```$/{exit} p' "$repo/README.md" > "$work/Package.swift"
-grep -q 'branch: "main"' "$work/Package.swift" || { echo "the Install block does not depend on the main branch" >&2; exit 1; }
-sed -i.bak -e "s|branch: \"main\"|revision: \"$rev\"|" -e "s|https://github.com/docuconf/docuconf-swift|$url|" "$work/Package.swift"
+grep -qE 'from: "[0-9]+\.[0-9]+\.[0-9]+"' "$work/Package.swift" || { echo "the Install block does not depend on a released version" >&2; exit 1; }
+sed -i.bak -E -e "s|from: \"[0-9]+\.[0-9]+\.[0-9]+\"|revision: \"$rev\"|" -e "s|https://github.com/docuconf/docuconf-swift|$url|" "$work/Package.swift"
 mkdir -p "$work/Sources/App"
 cp "$repo/Examples/Quickstart/main.swift" "$work/Sources/App/main.swift"
 cd "$work"
