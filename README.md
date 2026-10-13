@@ -36,7 +36,7 @@ let package = Package(
     name: "App",
     platforms: [.macOS(.v15)],
     dependencies: [
-        .package(url: "https://github.com/docuconf/docuconf-swift", from: "0.2.0"),
+        .package(url: "https://github.com/docuconf/docuconf-swift", from: "0.2.1"),
     ],
     targets: [
         .executableTarget(name: "App", dependencies: [
@@ -56,7 +56,7 @@ Two optional additions:
   `.product(name: "Configuration", package: "swift-configuration")`.
 - TLS key pairs, CA bundles and keystores are checked with swift-certificates and swift-crypto, which are built only
   with the package's `TLS` trait. Turn it on if you declare those file inputs:
-  `.package(url: "https://github.com/docuconf/docuconf-swift", from: "0.2.0", traits: ["TLS"])`. Without it, such a <!-- x-release-please-version -->
+  `.package(url: "https://github.com/docuconf/docuconf-swift", from: "0.2.1", traits: ["TLS"])`. Without it, such a <!-- x-release-please-version -->
   declaration fails at load with a message that says so.
 
 ## Declare and run
