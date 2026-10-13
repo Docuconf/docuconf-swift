@@ -4,6 +4,14 @@ All notable changes to docuconf-swift are documented here. Entries after 0.1.0 a
 [release-please](https://github.com/googleapis/release-please) from Conventional Commit messages; see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.2.1](https://github.com/Docuconf/docuconf-swift/compare/0.2.0...0.2.1) (2026-10-13)
+
+
+### Documentation
+
+* install from the 0.2.0 release and link Swift Package Index ([eff38bf](https://github.com/Docuconf/docuconf-swift/commit/eff38bf67c599908b1709e91f1c8702b89e6a2c3))
+* install from the 0.2.0 release and link Swift Package Index ([cfa42f5](https://github.com/Docuconf/docuconf-swift/commit/cfa42f5ee87384095383ee83a61b0ba5c4dfef1e))
+
 ## [0.2.0](https://github.com/Docuconf/docuconf-swift/compare/0.1.0...0.2.0) (2026-10-10)
 
 
