@@ -18,17 +18,17 @@ jobs:
     runs-on: ubuntu-latest
     container: swift:6.3-noble
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Pick the docuconf-go ref
         id: dcref
         run: echo "ref=$(tr -d '[:space:]' < .github/docuconf-go.ref)" >> "$GITHUB_OUTPUT"
       - name: Check out docuconf-go
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: docuconf/docuconf-go
           ref: ${{ steps.dcref.outputs.ref }}
           path: docuconf-go
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: stable
           cache: false
@@ -60,7 +60,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

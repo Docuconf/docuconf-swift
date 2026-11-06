@@ -28,7 +28,7 @@ jobs:
         # swift-configuration needs tools version 6.2.
         swift: ["6.2", "6.3"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Pick the docuconf-go ref
         id: dcref
@@ -45,13 +45,13 @@ jobs:
       # generated contracts against the first, the conformance runner reads
       # the second.
       - name: Check out docuconf-go
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: docuconf/docuconf-go
           ref: ${{ steps.dcref.outputs.ref }}
           path: docuconf-go
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: stable
           cache: false
@@ -152,7 +152,7 @@ jobs:
       matrix:
         example: [HelloHummingbird, HelloVapor]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: swift build --package-path Examples/${{ matrix.example }}
       - run: Examples/${{ matrix.example }}/smoke.sh
 
@@ -164,7 +164,7 @@ jobs:
     runs-on: ubuntu-latest
     container: swift:6.3-noble
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: scripts/check-readme-install.sh "$GITHUB_SHA" "https://github.com/${{ github.repository }}"
 
   core-foundation-only:
@@ -174,7 +174,7 @@ jobs:
     runs-on: ubuntu-latest
     container: swift:6.3-noble
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: swift build --target DocuconfCore
       - name: No imports beyond Foundation
         run: |
@@ -187,7 +187,7 @@ jobs:
     name: macOS and iOS
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Select the newest Xcode (Swift 6.2 or later is required)
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && swift --version
       - run: swift build --build-tests --traits TLS
