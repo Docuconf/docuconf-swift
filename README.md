@@ -194,6 +194,8 @@ the contract with `docuconf vet`, and turns them into the container's environmen
 [Helm chart](https://github.com/docuconf/docuconf-go/tree/main/helm/docuconf) does the same at `helm install` time.
 [`Examples/Orders`](Examples/Orders) is a small HTTP service with its exported contract, the same service every
 docuconf SDK ships, with a smoke test.
+[`Examples/Shop`](Examples/Shop) is one program that runs as two roles, `web` and `worker`, loading a hand-written
+contract with roles, `requiredIf` and the `otel@1` fragment in [contract-first mode](#contract-first-mode).
 
 ## With Hummingbird
 
@@ -758,7 +760,8 @@ surface is loaded:
   contract's, and that `DOCUCONF_ROLE` is a required `enum` whose values are the roles. `ContractDocument.roles` and
   `inputRoles` expose them.
 - **Fragments** (`includes`, SPEC §4.8): read and exposed as `ContractDocument.includes`. Their variables are inline
-  in `vars`, so they are loaded like any other.
+  in `vars`, so they are loaded like any other. [`Examples/Shop`](Examples/Shop) loads a contract with roles,
+  `requiredIf` and the `otel@1` fragment this way.
 - **Warnings** go to `warn:`: a deprecated input that is set (its name and message, never the value), and a variable
   set both in the environment and in an overlay.
 - **Reload**: values are read once, so a contract that declares `reload: watch` for a file input or an overlay is a
