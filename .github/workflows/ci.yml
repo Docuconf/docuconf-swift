@@ -128,12 +128,34 @@ jobs:
       - name: Smoke-test the orders example
         run: Examples/Orders/smoke.sh
 
+      # The shop example is contract-first: roles, requiredIf and the otel@1 fragment, loaded by ContractDocument.
+      - name: Build the shop example
+        run: swift build --package-path Examples/Shop
+
+      - name: Test the shop example (the README's matrix)
+        run: swift test --package-path Examples/Shop
+
+      # contract.json is the source, and the file the app reads; contract.cue is generated from it.
+      - name: The shop contract.cue is up to date, and both contracts vet
+        run: |
+          cp Examples/Shop/contract.cue /tmp/shop-contract.cue
+          Examples/Shop/contract-cue.sh
+          scripts/check-generated.sh --files /tmp/shop-contract.cue Examples/Shop/contract.cue
+          rm -rf /tmp/vet-shop && mkdir -p /tmp/vet-shop/svc
+          cp -r docuconf-go/spec/cue/cue.mod docuconf-go/spec/cue/contract /tmp/vet-shop/
+          cp Examples/Shop/contract.cue /tmp/vet-shop/svc/
+          cp Examples/Shop/contract.json /tmp/vet-shop/
+          cd /tmp/vet-shop && cue vet -c ./svc && cue vet -c ./svc contract.json
+
+      - name: Smoke-test the shop example
+        run: Examples/Shop/smoke.sh
+
       # CONFIG.md, CONFIG.agents.md and docs.json are generated from the
       # committed contract.cue (the exports above write to /tmp, so a
       # release's metadata.generator.version bump stays in all four files).
       - name: Generated docs are up to date
         run: |
-          for dir in Examples/Orders Examples/Gateway; do
+          for dir in Examples/Orders Examples/Gateway Examples/Shop; do
             (
               cd "$dir"
               docuconf docs contract.cue --check CONFIG.md

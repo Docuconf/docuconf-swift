@@ -7,12 +7,18 @@ import Testing
 /// `cases.json` comes from `DOCUCONF_CONFORMANCE`, or else a `docuconf-go` checkout next to this repository. When
 /// it is missing the suite is skipped, unless `DOCUCONF_REQUIRE_CONFORMANCE=1` (as in CI), which also fails the
 /// suite when any case is skipped.
+///
+/// `cases.pending.json`, next to it, holds the cases staged until every SDK supports their features. A pending case
+/// with only tags this SDK supports must pass; one with any other tag is skipped without failing the suite, and the
+/// pending run is skipped when the file is missing.
 @Suite struct ConformanceTests {
     /// The capability tags this SDK supports: an allow-list, so a case with a tag the runner does not know is
     /// skipped, never run (SPEC §12). `files` needs the package's `TLS` trait, which builds the certificate and
     /// keystore checks; CI runs the suite with it, and requires 0 skipped.
     static var supportedTags: Set<String> {
-        var tags: Set<String> = ["int64", "json-schema", "key-set", "deprecated", "strict-parsing", "profiles", "overlays"]
+        var tags: Set<String> = [
+            "int64", "json-schema", "key-set", "deprecated", "strict-parsing", "profiles", "overlays", "required-if", "roles",
+        ]
         #if TLS
         tags.insert("files")
         #endif
@@ -25,6 +31,11 @@ import Testing
     static var casesURL: URL {
         if let p = env["DOCUCONF_CONFORMANCE"], !p.isEmpty { return URL(fileURLWithPath: p) }
         return packageRoot.deletingLastPathComponent().appendingPathComponent("docuconf-go/conformance/cases.json")
+    }
+
+    /// `cases.pending.json`, next to `cases.json`.
+    static var pendingURL: URL {
+        casesURL.deletingLastPathComponent().appendingPathComponent("cases.pending.json")
     }
 
     static var required: Bool { env["DOCUCONF_REQUIRE_CONFORMANCE"] == "1" }
@@ -45,6 +56,38 @@ import Testing
             Issue.record("cases.json has no cases")
             return
         }
+        let (passed, skipped, failed) = await Self.runAll(cases)
+        let skippedText = Self.describe(skipped)
+        let skippedCount = skipped.values.reduce(0, +)
+        if skippedCount > 0 && Self.required {
+            Issue.record("\(skippedCount) conformance cases skipped (\(skippedText)); CI requires 0")
+        }
+        print("conformance: \(passed) passed, \(skippedCount) skipped\(skippedText.isEmpty ? "" : " (\(skippedText))"), \(failed.count) failed of \(cases.count)")
+    }
+
+    /// The pending cases (`cases.pending.json`): each with tags this SDK supports must pass, the others are skipped,
+    /// even under `DOCUCONF_REQUIRE_CONFORMANCE=1`. A missing file skips the run.
+    @Test func pendingSuite() async throws {
+        let url = Self.pendingURL
+        guard let data = FileManager.default.contents(atPath: url.path) else {
+            print("conformance (pending): skipped, \(url.path) not found")
+            return
+        }
+        let file = try JSONDecoder().decode(JSONValue.self, from: data)
+        #expect(file["version"] == 1, "unknown cases.pending.json version")
+        guard case .array(let cases)? = file["cases"] else {
+            Issue.record("cases.pending.json has no cases")
+            return
+        }
+        let (passed, skipped, failed) = await Self.runAll(cases)
+        let skippedText = Self.describe(skipped)
+        let skippedCount = skipped.values.reduce(0, +)
+        print("conformance (pending): \(passed) passed, \(skippedCount) skipped\(skippedText.isEmpty ? "" : " (\(skippedText))"), \(failed.count) failed of \(cases.count)")
+    }
+
+    /// Runs every case whose tags this SDK supports, recording an issue for each that fails. Returns the number
+    /// passed, the cases skipped by each missing tag, and the ids of the cases that failed.
+    static func runAll(_ cases: [JSONValue]) async -> (passed: Int, skipped: [String: Int], failed: [String]) {
         var passed = 0
         var skipped: [String: Int] = [:]
         var failed: [String] = []
@@ -62,12 +105,12 @@ import Testing
                 passed += 1
             }
         }
-        let skippedText = skipped.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }.joined(separator: ", ")
-        let skippedCount = skipped.values.reduce(0, +)
-        if skippedCount > 0 && Self.required {
-            Issue.record("\(skippedCount) conformance cases skipped (\(skippedText)); CI requires 0")
-        }
-        print("conformance: \(passed) passed, \(skippedCount) skipped\(skippedText.isEmpty ? "" : " (\(skippedText))"), \(failed.count) failed of \(cases.count)")
+        return (passed, skipped, failed)
+    }
+
+    /// Skipped cases by tag, as the summary line shows them: `2 files, 1 roles`.
+    static func describe(_ skipped: [String: Int]) -> String {
+        skipped.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }.joined(separator: ", ")
     }
 
     static func strings(_ v: JSONValue?) -> [String] {
