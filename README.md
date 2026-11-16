@@ -745,6 +745,20 @@ surface is loaded:
   `toml`, checked against their JSON Schema (a config file's value is its data); `text` files against their
   constraints; `tls` key pairs, `caBundle`s and PKCS#12 or JKS `keystore`s with the checks the declaration path runs;
   `binary` files for presence and `maxSize`.
+- **Conditional requirements** (`requiredIf`, SPEC §4.2.1): an input is required while its condition variable's
+  loaded value, from whichever layer, equals the condition's value. A missing variable is `missing_required`
+  (`is required when TLS_ENABLED is true`, the value as JSON, so `LOG_FORMAT is "json"`), a missing file
+  `file_missing` with `, and is required when ...` appended. A condition variable with a violation of its own makes
+  nothing required. The reader rejects a condition on an undeclared, secret or non-`string`/`int`/`bool`/`enum`
+  variable, a value that variable cannot hold, and a `requiredIf` input that is required, has a default or is
+  deprecated.
+- **Roles** (`roles`, SPEC §4.9): `DOCUCONF_ROLE` names the workload's role. An input whose `roles` leave out that
+  role is optional; with no role, or one the contract does not declare, every role-specific input is optional, so the
+  role is the one problem reported. The reader checks that the roles are DNS labels, that every input's roles are the
+  contract's, and that `DOCUCONF_ROLE` is a required `enum` whose values are the roles. `ContractDocument.roles` and
+  `inputRoles` expose them.
+- **Fragments** (`includes`, SPEC §4.8): read and exposed as `ContractDocument.includes`. Their variables are inline
+  in `vars`, so they are loaded like any other.
 - **Warnings** go to `warn:`: a deprecated input that is set (its name and message, never the value), and a variable
   set both in the environment and in an overlay.
 - **Reload**: values are read once, so a contract that declares `reload: watch` for a file input or an overlay is a
@@ -779,11 +793,15 @@ DOCUCONF_CONFORMANCE=../docuconf-go/conformance/cases.json DOCUCONF_REQUIRE_CONF
 
 A failing case is reported by its `id` (`int/below min`), which points at its YAML source in
 `conformance/load/`. **Capability tags: none are skipped.** The runner keeps an allow-list of the tags it supports,
-`int64`, `json-schema`, `key-set`, `deprecated`, `strict-parsing`, `files`, `profiles` and `overlays`, and skips a
-case with any other tag, so a tag added to the suite later never runs against an SDK that predates it. `files`
-needs the `TLS` trait (for the certificate and keystore cases); a build without it skips those cases, which is why
-CI runs the suite with `--traits TLS`. With `DOCUCONF_REQUIRE_CONFORMANCE=1`, as in CI, any skipped case fails the
+`int64`, `json-schema`, `key-set`, `deprecated`, `strict-parsing`, `files`, `profiles`, `overlays`, `required-if`
+and `roles`, and skips a case with any other tag, so a tag added to the suite later never runs against an SDK that
+predates it. `files` needs the `TLS` trait (for the certificate and keystore cases); a build without it skips those
+cases, which is why CI runs the suite with `--traits TLS`. With `DOCUCONF_REQUIRE_CONFORMANCE=1`, as in CI, any skipped case fails the
 suite. `int64` holds because `Int` is 64 bits on the platforms the suite runs on (Linux and macOS).
+
+The runner also runs `cases.pending.json`, next to `cases.json`: the cases docuconf-go stages until every SDK
+supports their features (sources in `conformance/pending/`). A pending case whose tags this SDK supports must pass;
+one with any other tag is skipped without failing, and the pending run is skipped when the file is missing.
 
 **Export.** `Tests/DocuconfCoreTests/SharedExportTests.swift` declares the shared export fixture
 (`conformance/export/fixture.yaml`) in Swift, exports it, and runs

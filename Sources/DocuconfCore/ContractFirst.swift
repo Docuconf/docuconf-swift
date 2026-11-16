@@ -21,6 +21,11 @@ import Foundation
 /// overlays are read under `DOCUCONF_FILE_ROOT` when the environment sets it. JSON and TOML files need nothing
 /// more; YAML files and the certificate checks (`tls`, `caBundle`, `keystore`) need the server SDK's
 /// `DocuconfFileSupport`, passed as `support`.
+///
+/// An input with `requiredIf` (SPEC §4.2.1) is required while its condition variable's loaded value, from whichever
+/// layer, equals the condition's value. In a contract with `roles` (SPEC §4.9), an input used only by other roles
+/// than the one `DOCUCONF_ROLE` names is optional; with no valid role, every role-specific input is optional.
+/// `includes` (SPEC §4.8) is read and exposed: the fragments' variables are already in `vars`.
 public struct ContractDocument: Sendable {
     /// `metadata.name`.
     public let name: String?
@@ -34,6 +39,20 @@ public struct ContractDocument: Sendable {
     public let overlays: [ConfigOverlay]
     /// Each variable's `configKey`, where the contract gives one: where an overlay holds its value.
     public let configKeys: [String: String]
+    /// The `requiredIf` of each variable and file input that has one (SPEC §4.2.1), by input name. Variable and
+    /// file input names never collide: variables are upper case, file inputs DNS labels.
+    public let conditions: [String: RequiredIf]
+    /// `roles`, the roles the image runs as (SPEC §4.9), if the contract has them.
+    public let roles: [String]?
+    /// The `roles` of each variable and file input that has them, by input name. An input not listed is used by
+    /// every role.
+    public let inputRoles: [String: [String]]
+    /// `includes`, the well-known fragments the contract includes (SPEC §4.8), as `name@major`. Their variables are
+    /// already inline in ``vars``, so they are loaded like any other.
+    public let includes: [String]
+
+    /// The variable that names a workload's role in a contract with roles (SPEC §4.9).
+    public static let roleVariable = "DOCUCONF_ROLE"
 
     /// Reads a contract exported as JSON. Throws ``DeclarationError`` when it is not a contract this SDK can
     /// load: an unknown type, a malformed constraint, a default that breaks its own constraints.
@@ -58,6 +77,8 @@ public struct ContractDocument: Sendable {
         if case .string(let n)? = contract["metadata"]?["name"] { name = n } else { name = nil }
         var vars: [VarSpec] = []
         var configKeys: [String: String] = [:]
+        var conditions: [String: RequiredIf] = [:]
+        var inputRoles: [String: [String]] = [:]
         switch contract["vars"] {
         case nil, .null?:
             break
@@ -65,6 +86,9 @@ public struct ContractDocument: Sendable {
             for (key, entry) in members.sorted(by: { $0.0 < $1.0 }) {
                 vars.append(Self.spec(key, entry))
                 if case .string(let k)? = entry["configKey"] { configKeys[key] = k }
+                // requiredIf and roles, which every input may have (SPEC §4.2.1, §4.9).
+                if let c = Self.requiredIf(entry, key, &problems) { conditions[key] = c }
+                if let r = Self.roleList(entry["roles"], "\(key): ", &problems) { inputRoles[key] = r }
             }
         default:
             problems.append("vars must be an object")
@@ -74,10 +98,17 @@ public struct ContractDocument: Sendable {
         case nil, .null?:
             break
         case .object(let members)?:
-            for (key, entry) in members.sorted(by: { $0.0 < $1.0 }) { files.append(Self.fileSpec(key, entry)) }
+            for (key, entry) in members.sorted(by: { $0.0 < $1.0 }) {
+                files.append(Self.fileSpec(key, entry))
+                // requiredIf and roles, which every input may have (SPEC §4.2.1, §4.9).
+                if let c = Self.requiredIf(entry, key, &problems) { conditions[key] = c }
+                if let r = Self.roleList(entry["roles"], "\(key): ", &problems) { inputRoles[key] = r }
+            }
         default:
             problems.append("files must be an object")
         }
+        let roles = Self.roleList(contract["roles"], "", &problems)
+        let includes = Self.includes(contract["includes"], &problems)
         var overlays: [ConfigOverlay] = []
         switch contract["overlays"] {
         case nil, .null?:
@@ -102,6 +133,12 @@ public struct ContractDocument: Sendable {
         self.overlays = overlays
         self.profiles = profiles
         self.configKeys = configKeys
+        self.conditions = conditions
+        self.roles = roles
+        self.inputRoles = inputRoles
+        self.includes = includes
+        problems += Self.roleProblems(roles: roles, inputRoles: inputRoles, vars: vars, files: files)
+        problems += Self.conditionProblems(conditions, vars: vars, files: files)
         problems += Declaration.validate(vars: vars, files: files, overlays: overlays, contractFirst: true).problems
         problems += Self.watchProblems(files: files, overlays: overlays)
         if !problems.isEmpty { throw DeclarationError(problems: problems) }
@@ -149,7 +186,22 @@ public struct ContractDocument: Sendable {
         let (overlayLayer, overlayViolations) = readOverlays(root: root, support: support, warn: warn)
         violations += overlayViolations
 
-        for spec in vars {
+        // Roles (SPEC §4.9): an input that only other roles use is optional here. With no role, or one the contract
+        // does not declare, every role-specific input is optional, so the role is the one problem reported.
+        let role = roles.flatMap { roles in env[Self.roleVariable].flatMap { roles.contains($0) ? $0 : nil } }
+        func inRole(_ name: String) -> Bool {
+            guard let used = inputRoles[name] else { return true }
+            guard let role else { return false }
+            return used.contains(role)
+        }
+        func forRole(_ declared: VarSpec) -> VarSpec {
+            guard declared.required, !inRole(declared.name) else { return declared }
+            var spec = declared
+            spec.required = false
+            return spec
+        }
+
+        for spec in vars.map(forRole) {
             let (raw, parsed) = spec.parse(environment: env)
             let overlay = overlayLayer[spec.name]
             if parsed != nil {
@@ -191,9 +243,27 @@ public struct ContractDocument: Sendable {
             }
         }
 
+        // Conditional requirements (SPEC §4.2.1), on the condition variables' loaded values: the environment, an
+        // overlay, the selected profile or the default. A condition variable with a violation has no value, so it
+        // makes nothing required.
+        let loaded = values
+        func requiredWhen(_ name: String) -> String? {
+            guard let condition = conditions[name], inRole(name), condition.holds(for: loaded[condition.variable]) else { return nil }
+            return condition.description
+        }
+        let reported = Set(violations.map(\.input))
+        for spec in vars where loaded[spec.name] == nil && !reported.contains(spec.name) {
+            if let when = requiredWhen(spec.name) {
+                violations.append(Violation(.missingRequired, spec.name, "is required when \(when)"))
+            }
+        }
+
         var fileValues: [String: ContractFileValue] = [:]
-        for file in files {
-            switch await loadFile(file, environment: env, root: root, support: support, warn: warn) {
+        for declared in files {
+            let when = requiredWhen(declared.name)
+            var file = declared
+            file.required = inRole(declared.name) && (declared.required || when != nil)
+            switch await loadFile(file, environment: env, root: root, support: support, warn: warn, requiredWhen: when) {
             case .success(let value?): fileValues[file.name] = value
             case .success(nil): break
             case .failure(let v): violations += v.violations
@@ -336,9 +406,11 @@ public struct ContractDocument: Sendable {
 
     // MARK: - File inputs
 
-    /// Loads one file input (SPEC §4.6, §11.2 item 7): `nil` when an optional input is absent.
+    /// Loads one file input (SPEC §4.6, §11.2 item 7): `nil` when an optional input is absent. `requiredWhen` is the
+    /// condition that makes it required at this load, if one does (SPEC §4.2.1), for the `file_missing` message.
     func loadFile(
-        _ spec: FileSpec, environment env: [String: String], root: String?, support: any ContractFileSupport, warn: (String) -> Void
+        _ spec: FileSpec, environment env: [String: String], root: String?, support: any ContractFileSupport, warn: (String) -> Void,
+        requiredWhen: String? = nil
     ) async -> Result<ContractFileValue?, ConfigurationError> {
         func fail(_ code: ViolationCode, _ message: String) -> Result<ContractFileValue?, ConfigurationError> {
             .failure(ConfigurationError(violations: [Violation(code, spec.name, message)]))
@@ -352,7 +424,8 @@ public struct ContractDocument: Sendable {
         if !present || isDirectory.boolValue != (spec.type == .tls) {
             guard spec.required else { return .success(nil) }
             let what = spec.type == .tls ? "directory" : "file"
-            return fail(.fileMissing, "\(path) \(present ? "is not a \(what)" : "does not exist")")
+            let condition = requiredWhen.map { ", and is required when \($0)" } ?? ""
+            return fail(.fileMissing, "\(path) \(present ? "is not a \(what)" : "does not exist")\(condition)")
         }
         if let d = spec.deprecated {
             warn("file input \(spec.name) is deprecated: \(d.message)" + (d.replacedBy.map { " Use \($0) instead." } ?? ""))
@@ -662,6 +735,155 @@ public struct ContractDocument: Sendable {
         return Deprecation(message: m, replacedBy: replacedBy)
     }
 
+    /// `requiredIf: {VAR: value}` (SPEC §4.2.1): one variable and a string, integer or boolean value.
+    static func requiredIf(_ entry: JSONValue, _ key: String, _ problems: inout [String]) -> RequiredIf? {
+        guard let c = entry["requiredIf"], c != .null else { return nil }
+        guard case .object(let members) = c, members.count == 1 else {
+            problems.append("\(key): requiredIf must name one variable and its value: {VAR: value}")
+            return nil
+        }
+        let (variable, raw) = members[0]
+        let value: RequiredIf.Value
+        switch raw {
+        case .string(let s): value = .string(s)
+        case .int(let i): value = .int(i)
+        case .bool(let b): value = .bool(b)
+        default:
+            problems.append("\(key): requiredIf must name one variable and a string, integer or boolean value")
+            return nil
+        }
+        guard EnvName.isValid(variable) else {
+            problems.append("\(key): requiredIf names \(variable), which is not a valid variable name")
+            return nil
+        }
+        return RequiredIf(variable: variable, value: value)
+    }
+
+    /// A list of roles (SPEC §4.9): DNS labels, at least one, none listed twice. `what` prefixes each problem.
+    static func roleList(_ value: JSONValue?, _ what: String, _ problems: inout [String]) -> [String]? {
+        guard let value, value != .null else { return nil }
+        guard case .array(let a) = value, !a.isEmpty else {
+            problems.append("\(what)roles must be a list of at least one role name")
+            return nil
+        }
+        let roles = a.compactMap { if case .string(let s) = $0 { s } else { nil } }
+        guard roles.count == a.count else {
+            problems.append("\(what)roles must be a list of at least one role name")
+            return nil
+        }
+        var seen = Set<String>()
+        for r in roles {
+            if !isRoleName(r) {
+                problems.append("\(what)role \(JSONValue.string(r).jsonText) must be a DNS label")
+            } else if !seen.insert(r).inserted {
+                problems.append("\(what)role \(r) is listed twice")
+            }
+        }
+        return roles
+    }
+
+    /// Whether `name` is a role name, a DNS label (`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`).
+    static func isRoleName(_ name: String) -> Bool {
+        let s = Array(name.unicodeScalars)
+        let lowerDigit: (Unicode.Scalar) -> Bool = { ("a"..."z").contains($0) || ("0"..."9").contains($0) }
+        guard (1...63).contains(s.count), lowerDigit(s[0]), lowerDigit(s[s.count - 1]) else { return false }
+        return s.allSatisfy { lowerDigit($0) || $0 == "-" }
+    }
+
+    /// `includes` (SPEC §4.8): the well-known fragments, as `name@major`, none listed twice.
+    static func includes(_ value: JSONValue?, _ problems: inout [String]) -> [String] {
+        guard let value, value != .null else { return [] }
+        guard case .array(let a) = value else {
+            problems.append("includes must be a list of fragment names, such as otel@1")
+            return []
+        }
+        var names: [String] = []
+        for item in a {
+            guard case .string(let name) = item else {
+                problems.append("includes must be a list of fragment names, such as otel@1")
+                return names
+            }
+            if !isFragmentName(name) {
+                problems.append("includes: \(JSONValue.string(name).jsonText) is not a fragment name, name@major")
+            } else if names.contains(name) {
+                problems.append("includes: \(name) is listed twice")
+            } else {
+                names.append(name)
+            }
+        }
+        return names
+    }
+
+    /// Whether `name` is a fragment name, `^[a-z][a-z0-9-]*@[1-9][0-9]*$`.
+    static func isFragmentName(_ name: String) -> Bool {
+        let parts = name.split(separator: "@", omittingEmptySubsequences: false)
+        guard parts.count == 2, let first = parts[0].unicodeScalars.first, ("a"..."z").contains(first),
+            let major = parts[1].unicodeScalars.first, ("1"..."9").contains(major)
+        else { return false }
+        return parts[0].unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }
+            && parts[1].unicodeScalars.allSatisfy { ("0"..."9").contains($0) }
+    }
+
+    /// The inputs' roles against the contract's (SPEC §4.9), and `DOCUCONF_ROLE`: a required enum whose values are
+    /// exactly the roles, used by every role.
+    static func roleProblems(roles: [String]?, inputRoles: [String: [String]], vars: [VarSpec], files: [FileSpec]) -> [String] {
+        var problems: [String] = []
+        for name in vars.map(\.name) + files.map(\.name) {
+            guard let used = inputRoles[name] else { continue }
+            guard let roles else {
+                problems.append("\(name): has roles, but the contract declares none")
+                continue
+            }
+            for r in used where !roles.contains(r) {
+                problems.append("\(name): role \(r) is not one of the contract's roles, \(roles.joined(separator: ", "))")
+            }
+        }
+        guard let roles else { return problems }
+        let role = vars.first { $0.name == roleVariable }
+        if let role, role.type == .enum, role.required, role.values == roles, inputRoles[roleVariable] == nil {
+            return problems
+        }
+        problems.append("\(roleVariable): a contract with roles declares it as a required enum whose values are the roles, \(roles.joined(separator: ", ")), used by every role")
+        return problems
+    }
+
+    /// Each input's `requiredIf` against the variables (SPEC §4.2.1): the condition names another declared variable,
+    /// a plain `string`, `int`, `bool` or `enum` one, with a value it can hold; the input is not required, has no
+    /// default and is not deprecated.
+    static func conditionProblems(_ conditions: [String: RequiredIf], vars: [VarSpec], files: [FileSpec]) -> [String] {
+        var problems: [String] = []
+        // Each input's name, and whether it is required, has a default and is deprecated.
+        var inputs: [(String, Bool, Bool, Bool)] = vars.map { ($0.name, $0.required, $0.defaultValue != nil, $0.deprecated != nil) }
+        inputs += files.map { ($0.name, $0.required, false, $0.deprecated != nil) }
+        for (name, required, hasDefault, deprecated) in inputs {
+            guard let condition = conditions[name] else { continue }
+            if required { problems.append("\(name): an input with requiredIf cannot be required") }
+            if hasDefault { problems.append("\(name): an input with requiredIf cannot have a default") }
+            if deprecated { problems.append("\(name): an input with requiredIf cannot be deprecated: the platform could not stop setting it") }
+            guard condition.variable != name, let on = vars.first(where: { $0.name == condition.variable }) else {
+                problems.append("\(name): requiredIf must name another declared variable, not \(condition.variable)")
+                continue
+            }
+            guard !on.secret, [VarType.string, .int, .bool, .enum].contains(on.type) else {
+                problems.append("\(name): requiredIf names \(on.name), which is not a plain string, int, bool or enum variable")
+                continue
+            }
+            let parsed: ParsedValue?
+            switch (on.type, condition.value) {
+            case (.string, .string(let s)): parsed = .string(s)
+            case (.enum, .string(let s)): parsed = .enumCase(s)
+            case (.int, .int(let i)): parsed = .int(i)
+            case (.bool, .bool(let b)): parsed = .bool(b)
+            default: parsed = nil
+            }
+            let violation = parsed.flatMap { on.check($0).first }
+            if parsed == nil || violation != nil {
+                problems.append("\(name): requiredIf: \(condition) is not a value \(on.name) can have" + (violation.map { ": \($0.message)" } ?? ""))
+            }
+        }
+        return problems
+    }
+
     /// An overlay's contract entry (`#Overlay`).
     static func overlay(_ key: String, _ entry: JSONValue) -> (ConfigOverlay, [String]) {
         var problems: [String] = []
@@ -756,6 +978,48 @@ public struct ContractDocument: Sendable {
         default: return nil
         }
     }
+}
+
+/// `requiredIf: {VAR: value}` (SPEC §4.2.1): an input is required while variable `VAR` has `value`, compared with
+/// the variable's loaded value.
+public struct RequiredIf: Sendable, Hashable, CustomStringConvertible {
+    /// A condition's value: a string (for a `string` or `enum` variable), an integer or a boolean.
+    public enum Value: Sendable, Hashable {
+        case string(String)
+        case int(Int)
+        case bool(Bool)
+
+        public var json: JSONValue {
+            switch self {
+            case .string(let s): .string(s)
+            case .int(let i): .int(i)
+            case .bool(let b): .bool(b)
+            }
+        }
+    }
+
+    /// The condition variable.
+    public var variable: String
+    public var value: Value
+
+    public init(variable: String, value: Value) {
+        self.variable = variable
+        self.value = value
+    }
+
+    /// Whether a loaded value is the condition's value. An absent value never is.
+    public func holds(for loaded: ParsedValue?) -> Bool {
+        switch (value, loaded) {
+        case (.string(let a), .string(let b)?): return a == b
+        case (.string(let a), .enumCase(let b)?): return a == b
+        case (.int(let a), .int(let b)?): return a == b
+        case (.bool(let a), .bool(let b)?): return a == b
+        default: return false
+        }
+    }
+
+    /// The condition as messages write it, the value as JSON: `TLS_ENABLED is true`, `LOG_FORMAT is "json"`.
+    public var description: String { "\(variable) is \(value.json.jsonText)" }
 }
 
 /// `profiles` in a contract (SPEC §4.4): the selector variable, the profile in effect when it is unset, and each
