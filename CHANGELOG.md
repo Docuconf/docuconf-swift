@@ -4,6 +4,22 @@ All notable changes to docuconf-swift are documented here. Entries after 0.1.0 a
 [release-please](https://github.com/googleapis/release-please) from Conventional Commit messages; see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.3.0](https://github.com/Docuconf/docuconf-swift/compare/0.2.0...0.3.0) (2026-11-20)
+
+
+### Features
+
+* requiredIf, roles and includes in contract-first validation ([96306d0](https://github.com/Docuconf/docuconf-swift/commit/96306d00da593a63ac1c93e61801a8e8ec1b801d))
+* requiredIf, roles and includes in contract-first validation ([b98a7e9](https://github.com/Docuconf/docuconf-swift/commit/b98a7e99812f349a6d8d7a475dc3333e472c51dc))
+
+
+### Documentation
+
+* add the shop example (roles, requiredIf, fragments) ([afc670b](https://github.com/Docuconf/docuconf-swift/commit/afc670bee9288550ecc997f724690d0dbaa4f49c))
+* add the shop example (roles, requiredIf, fragments) ([e415d5d](https://github.com/Docuconf/docuconf-swift/commit/e415d5de5548eb45a1f1da897e80b5ee7d9e2245))
+* install from the 0.2.0 release and link Swift Package Index ([eff38bf](https://github.com/Docuconf/docuconf-swift/commit/eff38bf67c599908b1709e91f1c8702b89e6a2c3))
+* install from the 0.2.0 release and link Swift Package Index ([cfa42f5](https://github.com/Docuconf/docuconf-swift/commit/cfa42f5ee87384095383ee83a61b0ba5c4dfef1e))
+
 ## [0.2.0](https://github.com/Docuconf/docuconf-swift/compare/0.1.0...0.2.0) (2026-10-10)
 
 
